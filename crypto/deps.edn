@@ -1,0 +1,11 @@
+{
+ :paths ["src"]
+ :deps {
+        org.clojure/clojure { :mvn/version "1.11.1" }
+        slingshot/slingshot { :mvn/version "0.12.2" }
+        org.clojure/tools.cli { :mvn/version "1.0.214" }
+        }
+ :aliases {
+           :build { :default-ns build }
+           }
+ }

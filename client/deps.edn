@@ -1,0 +1,16 @@
+{
+ :paths ["src"]
+ :deps {
+        org.clojure/clojure { :mvn/version "1.11.1" }
+        org.clojure/data.json { :mvn/version "2.4.0" }
+        slingshot/slingshot { :mvn/version "0.12.2" }
+
+        org.fudo/nexus.crypto { :local/root "../crypto" }
+
+        org.fudo/fudo-clojure {
+                               :git/url "https://git.fudo.org/fudo-public/fudo-clojure.git"
+                               :sha "034b629ff3b77f1d0d5ca97045e8229da166eaf6"
+                               }
+        }
+ :aliases { }
+ }
