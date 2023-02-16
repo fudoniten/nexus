@@ -1,10 +1,10 @@
-(ns nexus.core
+(ns nexus.server.cli
   (:require [nexus.server :as server]
             [clojure.tools.cli :as cli]
             [clojure.string :as str]
             [nexus.sql-datastore :as sql-store]
             [nexus.authenticator :as auth]
-            [ring.adaptor.jetty :refer [run-jetty]])
+            [ring.adapter.jetty :refer [run-jetty]])
   (:gen-class))
 
 (def cli-opts

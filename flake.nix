@@ -34,12 +34,14 @@
           nexus-server = cljpkgs.mkCljBin {
             projectSrc = ./server;
             name = "org.fudo/nexus-server";
+            main-ns = "nexus.server.cli";
             inherit jdkRunner;
             lockfile = ./server/deps-lock.json;
           };
           nexus-client = cljpkgs.mkCljBin {
             projectSrc = ./client;
             name = "org.fudo/nexus-client";
+            main-ns = "nexus.client.cli";
             inherit jdkRunner;
             lockfile = ./client/deps-lock.json;
           };

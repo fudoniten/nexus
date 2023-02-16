@@ -2,7 +2,6 @@
   (:require [fudo-clojure.http.client :as http]
             [fudo-clojure.http.request :as req]
             [fudo-clojure.common :refer [base64-encode-string instant-to-epoch-timestamp]]
-            [fudo-clojure.ip :as ip]
             [nexus.crypto :as crypto]
             [clojure.string :as str])
   (:import javax.crypto.Mac))
@@ -84,12 +83,12 @@
            :access-hostname  hostname})))))
 
 (defprotocol INexusClient
-  (send-ipv4! [_ ipv4])
-  (send-ipv6! [_ ipv6])
+  (send-ipv4!   [_ ipv4])
+  (send-ipv6!   [_ ipv6])
   (send-sshfps! [_ sshfps])
-  (get-ipv4! [_])
-  (get-ipv6! [_])
-  (get-sshfps! [_]))
+  (get-ipv4!    [_])
+  (get-ipv6!    [_])
+  (get-sshfps!  [_]))
 
 (defrecord NexusClient [http-client hostname server port]
 
