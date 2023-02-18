@@ -74,6 +74,10 @@
           inherit (self.packages."${prev.system}") nexus-keygen;
         };
 
-        nixosModules = { server = import ./server/module.nix self.packages; };
+        nixosModules = {
+          nexus-client = import ./client/module.nix self.packages;
+          nexus-powerdns = import ./powerdns/module.nix;
+          nexus-server = import ./server/module.nix self.packages;
+        };
       };
 }
