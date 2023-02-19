@@ -148,7 +148,7 @@ in {
       };
     };
 
-    server = with types; {
+    server = {
       enable = mkEnableOption "Enable Fudo Nexus server.";
 
       host-keys = mkOption {
@@ -181,6 +181,34 @@ in {
           description = "File containing database password for <user>.";
           default = "nexus_server";
         };
+      };
+    };
+
+    client = with types; {
+      enable = mkEnableOption "Enable Nexus DDNS client.";
+
+      hostname = mkOption {
+        type = str;
+        description =
+          "Base hostname of this host. Must match key held by server.";
+      };
+
+      ipv4 = mkOption {
+        type = bool;
+        description = "Report IPv4 address, if present.";
+        default = true;
+      };
+
+      ipv6 = mkOption {
+        type = bool;
+        description = "Report IPv6 address, if present.";
+        default = true;
+      };
+
+      sshfps = mkOption {
+        type = bool;
+        description = "Report SSH host key fingerprints.";
+        default = true;
       };
     };
   };
