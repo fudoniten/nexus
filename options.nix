@@ -1,5 +1,6 @@
 { config, lib, pkgs, ... }:
 
+with lib;
 let
   domainOpts = { name, ... }: {
     options = with lib.types; {
@@ -184,7 +185,7 @@ in {
       };
     };
 
-    client = with types; {
+    client = {
       enable = mkEnableOption "Enable Nexus DDNS client.";
 
       hostname = mkOption {
