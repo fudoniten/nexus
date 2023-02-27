@@ -11,15 +11,13 @@ in {
   imports = [ ../options.nix ];
 
   config = {
-    services = {
-      nginx = {
-        enable = true;
-        virtualHosts."${cfg.hostname}" = {
-          enableACME = true;
-          forceSSL = true;
+    services.nginx = {
+      enable = true;
+      virtualHosts."${cfg.hostname}" = {
+        enableACME = true;
+        forceSSL = true;
 
-          locations."/".proxyPass = "http://127.0.0.1:${cfg.port}";
-        };
+        locations."/".proxyPass = "http://127.0.0.1:${cfg.port}";
       };
     };
 
