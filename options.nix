@@ -168,7 +168,6 @@ in {
       hostname = mkOption {
         type = str;
         description = "Hostname on which to listen for incoming requests.";
-        default = "nexus.${toplevel.config.fudo.nexus.server.domain}";
       };
 
       client-keys-file = mkOption {
