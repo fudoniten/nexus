@@ -11,7 +11,7 @@ in {
 
   config = {
     systemd = {
-      service = {
+      services = {
         nexus-client = let
           sshKeys = listToAttrs
             (map (key: nameValuePairs (baseNameOf key.path) key.path)
