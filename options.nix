@@ -9,6 +9,13 @@ let
         default = name;
       };
 
+      admin = mkOption {
+        type = str;
+        description = "Email address of the domain administrator.";
+        default = "admin@${name}";
+      };
+
+      # FIXME: not used ATM...
       aliases = mkOption {
         type = attrsOf str;
         description = "Map of alias to authoritative hostname.";
@@ -81,12 +88,6 @@ let
   };
 in {
   options.fudo.nexus = with lib.types; {
-    admin = mkOption {
-      type = str;
-      description = "Administrator's email address.";
-      default = "admin@${toplevel.config.fudo.nexus.domain}";
-    };
-
     domains = mkOption {
       type = attrsOf domainOpts;
       description = "Map of domains served by Nexus to domain options.";
