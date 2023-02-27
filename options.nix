@@ -21,8 +21,6 @@ let
         default = null;
       };
 
-      enable-dnssec = mkEnableOption "Enable DNSSEC for this domain.";
-
       trusted-networks = mkOption {
         type = listOf str;
         description = "List of networks that are trusted for email relay.";
@@ -128,6 +126,8 @@ in {
         descritpion = "List of addresses on which to listen for requests.";
       };
 
+      enable-dnssec = mkEnableOption "Enable DNSSEC for this domain.";
+
       debug = mkOption {
         type = bool;
         descrition = "Enable verbose debugging.";
@@ -168,6 +168,12 @@ in {
         type = str;
         description = "Hostname on which to listen for incoming requests.";
         default = "nexus.${toplevel.config.fudo.nexus.server.domain}";
+      };
+
+      client-keys-file = mkOption {
+        type = str;
+        description =
+          "Path (on the local host) to JSON file containing a hostname to HMAC key.";
       };
 
       database = {
@@ -212,9 +218,21 @@ in {
         default = true;
       };
 
-      domain = mkOption {
+      domains = mkOption {
         type = listOf str;
         description = "Domain(s) to which this client belongs.";
+        default = [ ];
+      };
+
+      delay-seconds = mkOption {
+        type = int;
+        description = "Seconds to wait before reporting IP addresses.";
+        default = 60;
+      };
+
+      hmac-key-file = mkOption {
+        type = listOf str;
+        description = "Path (on local host) of file containing HMAC key.";
       };
     };
   };

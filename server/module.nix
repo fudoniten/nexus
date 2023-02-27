@@ -6,6 +6,7 @@ with lib;
 let
   nexus-server = packages."${pkgs.system}".nexus-server;
   cfg = config.fudo.nexus.server;
+
 in {
   imports = [ ../options.nix ];
 
@@ -22,27 +23,32 @@ in {
       };
     };
 
+    # TODO: This should be done in config
+    # fudo.secrets.host-secrets."${hostname}".nexus-client-keys = {
+    #   source-file = pkgs.writeText "host-keys.json"
+    #     (toJSON (mapAttrs (_: filename: readFile filename) cfg.host-keys));
+    #   target-file = "/run/nexus-server/host-keys.json";
+    # };
+
     systemd.services.nexus-server = {
       path = [ nexus-server ];
       serviceConfig = {
-        ExecStart = let
-          host-keys-file = pkgs.writeText "host-keys.json"
-            (toJSON (mapAttrs (_: filename: readFile filename) cfg.host-keys));
-        in concatStringsSep " " [
-          "nexus-server"
-          "--host-keys=$CREDENTIALS_DIRECTORY/host-keys.json"
-          "--database=${cfg.database.database}"
-          "--database-user=${cfg.database.user}"
-          "--database-password-file=$CREDENTIALS_DIRECTORY/db.passwd"
-          "--database-host=${cfg.database.host}"
-          "--database-port=${cfg.database.port}"
-          "--listen-host=127.0.0.1"
-          "--listen-port=${toString cfg.port}"
-        ];
+        ExecStart = pkgs.writeShellScript "nexus-server-start.sh"
+          (concatStringsSep " " [
+            "nexus-server"
+            "--host-keys=$CREDENTIALS_DIRECTORY/host-keys.json"
+            "--database=${cfg.database.database}"
+            "--database-user=${cfg.database.user}"
+            "--database-password-file=$CREDENTIALS_DIRECTORY/db.passwd"
+            "--database-host=${cfg.database.host}"
+            "--database-port=${cfg.database.port}"
+            "--listen-host=127.0.0.1"
+            "--listen-port=${toString cfg.port}"
+          ]);
 
         LoadCredentials = [
           "db.passwd:${cfg.database.password-file}"
-          "host-keys.json:${host-keys-file}"
+          "host-keys.json:${cfg.client-keys-file}"
         ];
         DynamicUser = true;
         # Needs access to network for Postgresql

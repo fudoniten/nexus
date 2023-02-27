@@ -13,7 +13,7 @@ in {
     systemd = {
       service = {
         nexus-client = let
-          keys = listToAttrs
+          sshKeys = listToAttrs
             (map (key: nameValuePairs (baseNameOf key.path) key.path)
               config.services.openssh.hostKeys);
         in {
@@ -21,23 +21,26 @@ in {
           serviceConfig = {
             DynamicUser = true;
             RuntimeDirectory = "nexus-client";
-            LoadCredentials =
-              mapAttrsToList (filename: path: "${filename}:${path}") keys;
+            LoadCredentials = [ "hmac.key:${cfg.hmac-key-file}" ]
+              ++ (mapAttrsToList (filename: path: "${filename}:${path}")
+                sshKeys);
             ExecStartPre = let
               cmds = map (filename:
                 "ssh-keygen -r -f $CREDENTIALS_DIRECTORY/${filename} > $CACHE_DIRECTORY/${filename}.fp")
                 (attrNames keys);
             in pkgs.writeShellScript "generate-sshfps.sh" "\n";
-            ExecStart = concatStringsSep " " [
-              "nexus-client"
-              "--server=${config.fudo.nexus.server.hostname}"
-              "--port=${config.fudo.nexus.server.port}"
-              "--delay-seconds=${toString 5 * 60}"
-              "--hostname=${cfg.hostname}"
-            ] ++ (map (dom: "--domain=${dom}") cfg.domains)
-              ++ (optional cfg.ipv4 "--ipv4") ++ (optional cfg.ipv6 "--ipv6")
-              ++ (optionals cfg.sshfps
-                (map (filename: "--sshfp=${filename}.sp") (attrNames keys)));
+            ExecStart = pkgs.writeShellScript "nexus-client.sh"
+              (concatStringsSep " " [
+                "nexus-client"
+                "--server=${config.fudo.nexus.server.hostname}"
+                "--port=${config.fudo.nexus.server.port}"
+                "--delay-seconds=${toString cfg.delay-seconds}"
+                "--hostname=${cfg.hostname}"
+                "--key-file=$CREDENTIALS_DIRECTORY/hmac.key"
+              ] ++ (map (dom: "--domain=${dom}") cfg.domains)
+                ++ (optional cfg.ipv4 "--ipv4") ++ (optional cfg.ipv6 "--ipv6")
+                ++ (optionals cfg.sshfps
+                  (map (filename: "--sshfp=${filename}.sp") (attrNames keys))));
           };
         };
       };

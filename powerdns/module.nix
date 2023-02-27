@@ -96,34 +96,6 @@ let
       fi
     '';
 
-  domainOpts = { name, ... }: {
-    options = with types; {
-      domain = mkOption {
-        type = str;
-        description = "Domain name.";
-        default = name;
-      };
-
-      admin = mkOption {
-        type = str;
-        description = "Administrator email.";
-        default = "admin@${name}";
-      };
-
-      aliases = mkOption {
-        type = attrsOf str;
-        description = "Map of alias to authoritative hostname for this domain.";
-        default = { };
-      };
-
-      gssapi-realm = mkOption {
-        type = nullOr str;
-        description = "GSSAPI realm of this domain.";
-        default = null;
-      };
-    };
-  };
-
 in {
   config = mkIf cfg.enable {
     networking.firewall = {
