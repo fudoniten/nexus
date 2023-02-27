@@ -10,7 +10,7 @@ let
 in {
   imports = [ ../options.nix ];
 
-  config = {
+  config = mkIf cfg.enable {
     services.nginx = {
       enable = true;
       virtualHosts."${cfg.hostname}" = {

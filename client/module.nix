@@ -9,7 +9,7 @@ let
 in {
   imports = [ ../options.nix ];
 
-  config = {
+  config = mkIf cfg.enable {
     systemd = {
       services = {
         nexus-client = let

@@ -97,6 +97,8 @@ let
     '';
 
 in {
+  imports = [ ../options.nix ];
+
   config = mkIf cfg.enable {
     networking.firewall = {
       allowedTCPPorts = [ cfg.port ];
