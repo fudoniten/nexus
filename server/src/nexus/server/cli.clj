@@ -14,13 +14,13 @@
    ["-D" "--database DATABASE"
     "Database name of the PowerDNS database."]
 
-   ["-U" "--database-user USER"
+   ["-U" "--database-user DB_USER"
     "User as which to connect to the PowerDNS database."]
 
-   ["-W" "--database-password-file PASSWORD_FILE"
+   ["-W" "--database-password-file DB_PASSWORD_FILE"
     "File containing password with which to connect to the PowerDNS database."]
 
-   ["-H" "--database-host HOSTNAME"
+   ["-H" "--database-host DB_HOSTNAME"
     "Hostname of the Postgresql PowerDNS database."]
 
    ["-P" "--database-port DB_PORT"
@@ -31,10 +31,7 @@
     "Hostname or IP address on which to listen."]
 
    ["-p" "--listen-port PORT"
-    "Port on which to listen for incoming requests."]
-
-   ["-d" "--domain DOMAIN"
-    "Domain for which this server acts as DDNS Nexus."]])
+    "Port on which to listen for incoming requests."]])
 
 (defn- usage
   ([summary] (usage summary []))
@@ -65,10 +62,10 @@
                        :database
                        :database-user
                        :database-password-file
-                       :database-host
+                       :database-hostname
+                       :database-port
                        :listen-host
-                       :listen-port
-                       :domain]
+                       :listen-port]
         {:keys [options _ errors summary]}
         (parse-opts args required-keys cli-opts)]
     (when (seq errors)    (msg-quit 1 (usage summary errors)))

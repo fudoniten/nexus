@@ -34,7 +34,8 @@ in {
               "--port=${config.fudo.nexus.server.port}"
               "--delay-seconds=${toString 5 * 60}"
               "--hostname=${cfg.hostname}"
-            ] ++ (optional cfg.ipv4 "--ipv4") ++ (optional cfg.ipv6 "--ipv6")
+            ] ++ (map (dom: "--domain=${dom}") cfg.domains)
+              ++ (optional cfg.ipv4 "--ipv4") ++ (optional cfg.ipv6 "--ipv6")
               ++ (optionals cfg.sshfps
                 (map (filename: "--sshfp=${filename}.sp") (attrNames keys)));
           };

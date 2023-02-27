@@ -211,6 +211,11 @@ in {
         description = "Report SSH host key fingerprints.";
         default = true;
       };
+
+      domain = mkOption {
+        type = listOf str;
+        description = "Domain(s) to which this client belongs.";
+      };
     };
   };
 }

@@ -12,7 +12,7 @@
       (doseq [sql sqls]
         (jdbc/execute! tx (sql/format sql))))))
 
-(defn- host-has-record-sql [host domain record-type]
+(defn- host-has-record-sql [domain host record-type]
   (let [fqdn (format "%s.%s" host domain)]
     (-> (select :id)
         (from :records)
@@ -21,25 +21,24 @@
                [:= :domains.name domain]
                [:= :records.type record-type]))))
 
-(defn- host-has-record? [store host record-type]
-  (let [domain (:domain store)]
-    (->> (host-has-record-sql host domain record-type)
-         (sql/format)
-         (exec! store)
-         (seq))))
+(defn- host-has-record? [store domain host record-type]
+  (->> (host-has-record-sql domain host record-type)
+       (sql/format)
+       (exec! store)
+       (seq)))
 
 (defn- domain-id-sql [domain]
   (-> (select :id)
       (from   :domains)
       (where  [:= :name domain])))
 
-(defn- host-has-ipv4? [store host]
-  (host-has-record? store host "A"))
+(defn- host-has-ipv4? [store domain host]
+  (host-has-record? store domain host "A"))
 
-(defn- host-has-ipv6? [store host]
-  (host-has-record? store host "AAAA"))
+(defn- host-has-ipv6? [store domain host]
+  (host-has-record? store domain host "AAAA"))
 
-(defn- insert-records-sql [host domain record-type contents]
+(defn- insert-records-sql [domain host record-type contents]
   (let [fqdn (format "%s.%s" host domain)]
     (-> (insert-into :records)
         (values (map (fn [content]
@@ -49,22 +48,22 @@
                         :domain_id (domain-id-sql domain)})
                      contents)))))
 
-(defn- insert-host-ipv4-sql [host domain ip]
-  (insert-records-sql host domain "A" [(str ip)]))
+(defn- insert-host-ipv4-sql [domain host ip]
+  (insert-records-sql domain host "A" [(str ip)]))
 
-(defn- insert-host-ipv6-sql [host domain ip]
-  (insert-records-sql host domain "AAAA" [(str ip)]))
+(defn- insert-host-ipv6-sql [domain host ip]
+  (insert-records-sql domain host "AAAA" [(str ip)]))
 
-(defn- insert-host-sshfps-sql [host domain sshfps]
-  (insert-records-sql host domain "SSHFP" sshfps))
+(defn- insert-host-sshfps-sql [domain host sshfps]
+  (insert-records-sql domain host "SSHFP" sshfps))
 
-(defn- insert-host-ipv4 [store host ip]
-  (exec! store (insert-host-ipv4-sql host (:domain store) ip)))
+(defn- insert-host-ipv4 [store domain host ip]
+  (exec! store (insert-host-ipv4-sql domain host (:domain store) ip)))
 
-(defn- insert-host-ipv6 [store host ip]
-  (exec! store (insert-host-ipv6-sql host (:domain store) ip)))
+(defn- insert-host-ipv6 [store domain host ip]
+  (exec! store (insert-host-ipv6-sql domain host (:domain store) ip)))
 
-(defn- update-record-sql [host domain record-type content]
+(defn- update-record-sql [domain host record-type content]
   (let [fqdn (format "%s.%s" host domain)]
     (-> (update :records)
         (set {:content content})
@@ -72,41 +71,41 @@
                [:= :type      record-type]
                [:= :domain_id (domain-id-sql domain)]))))
 
-(defn- update-host-ipv4-sql [host domain ip]
-  (update-record-sql host domain "A" (str ip)))
+(defn- update-host-ipv4-sql [domain host ip]
+  (update-record-sql domain host "A" (str ip)))
 
-(defn- update-host-ipv6-sql [host domain ip]
-  (update-record-sql host domain "AAAA" (str ip)))
+(defn- update-host-ipv6-sql [domain host ip]
+  (update-record-sql domain host "AAAA" (str ip)))
 
-(defn- update-host-ipv4 [store host ip]
-  (exec! store (update-host-ipv4-sql host (:domain store) ip)))
+(defn- update-host-ipv4 [store domain host ip]
+  (exec! store (update-host-ipv4-sql domain host ip)))
 
-(defn- update-host-ipv6 [store host ip]
-  (exec! store (update-host-ipv6-sql host (:domain store) ip)))
+(defn- update-host-ipv6 [store domain host ip]
+  (exec! store (update-host-ipv6-sql domain host ip)))
 
-(defn- delete-host-sshfps-sql [host domain]
+(defn- delete-host-sshfps-sql [domain host]
   (let [fqdn (format "%s.%s" host domain)]
     (-> (delete-from :records)
         (where [:= :name      fqdn]
                [:= :type      "SSHFP"]
                [:= :domain_id (domain-id-sql domain)]))))
 
-(defn- set-host-ipv4-impl [store host ip]
-  (if (host-has-ipv4? store host)
-    (update-host-ipv4 store host ip)
-    (insert-host-ipv4 store host ip)))
+(defn- set-host-ipv4-impl [store domain host ip]
+  (if (host-has-ipv4? store domain host)
+    (update-host-ipv4 store domain host ip)
+    (insert-host-ipv4 store domain host ip)))
 
-(defn- set-host-ipv6-impl [store host ip]
-  (if (host-has-ipv6? store host)
-    (update-host-ipv6 store host ip)
-    (insert-host-ipv6 store host ip)))
+(defn- set-host-ipv6-impl [store domain host ip]
+  (if (host-has-ipv6? store domain host)
+    (update-host-ipv6 store domain host ip)
+    (insert-host-ipv6 store domain host ip)))
 
-(defn- set-host-sshpfs-impl [store host sshfps]
+(defn- set-host-sshpfs-impl [store domain host sshfps]
   (exec! store
-         (delete-host-sshfps-sql host (:domain store))
-         (insert-host-sshfps-sql host (:domain store) sshfps)))
+         (delete-host-sshfps-sql host)
+         (insert-host-sshfps-sql domain host sshfps)))
 
-(defn- get-record-contents-sql [record-type host domain]
+(defn- get-record-contents-sql [record-type domain host]
   (let [fqdn (format "%s.%s" host domain)]
     (-> (select :content)
         (from :records)
@@ -114,46 +113,45 @@
                [:= :type record-type]
                [:= :domain_id (domain-id-sql domain)]))))
 
-(defn- get-host-ipv4-sql [host domain]
-  (get-record-contents-sql "A" host domain))
+(defn- get-host-ipv4-sql [domain host]
+  (get-record-contents-sql "A" domain host))
 
-(defn- get-host-ipv6-sql [host domain]
-  (get-record-contents-sql "AAAA" host domain))
+(defn- get-host-ipv6-sql [domain host]
+  (get-record-contents-sql "AAAA" domain host))
 
-(defn- get-host-sshfps-sql [host domain]
-  (get-record-contents-sql "SSHFP" host domain))
+(defn- get-host-sshfps-sql [domain host]
+  (get-record-contents-sql "SSHFP" domain host))
 
-(defn- get-host-ipv4-impl [store host]
-  (first (exec! store (get-host-ipv4-sql host (:domain store)))))
+(defn- get-host-ipv4-impl [store domain host]
+  (first (exec! store (get-host-ipv4-sql domain host))))
 
-(defn- get-host-ipv6-impl [store host]
-  (first (exec! store (get-host-ipv6-sql host (:domain store)))))
+(defn- get-host-ipv6-impl [store domain host]
+  (first (exec! store (get-host-ipv6-sql domain host))))
 
-(defn- get-host-sshfps-impl [store host]
-  (exec! store (get-host-sshfps-sql host (:domain store))))
+(defn- get-host-sshfps-impl [store domain host]
+  (exec! store (get-host-sshfps-sql domain host)))
 
-(defrecord SqlDataStore [domain datasource]
+(defrecord SqlDataStore [datasource]
 
   datastore/IDataStore
 
-  (set-host-ipv4 [_ host ip]
-    (set-host-ipv4-impl datasource host ip))
-  (set-host-ipv6 [_ host ip]
-    (set-host-ipv6-impl datasource host ip))
-  (set-host-sshfps [_ host sshfps]
-    (set-host-sshpfs-impl datasource host sshfps))
+  (set-host-ipv4 [_ domain host ip]
+    (set-host-ipv4-impl datasource domain host ip))
+  (set-host-ipv6 [_ domain host ip]
+    (set-host-ipv6-impl datasource domain host ip))
+  (set-host-sshfps [_ domain host sshfps]
+    (set-host-sshpfs-impl datasource domain host sshfps))
 
-  (get-host-ipv4 [_ host]
-    (get-host-ipv4-impl datasource host))
-  (get-host-ipv6 [_ host]
-    (get-host-ipv6-impl datasource host))
-  (get-host-sshfps [_ host]
-    (get-host-sshfps-impl datasource host)))
+  (get-host-ipv4 [_ domain host]
+    (get-host-ipv4-impl datasource domain host))
+  (get-host-ipv6 [_ domain host]
+    (get-host-ipv6-impl datasource domain host))
+  (get-host-sshfps [_ domain host]
+    (get-host-sshfps-impl datasource domain host)))
 
-(defn connect [{:keys [domain database-user database-password-file database-host database-port database]
+(defn connect [{:keys [database-user database-password-file database-host database-port database]
                 :or {database-port 5432}}]
-  (SqlDataStore. domain
-                 (jdbc/get-datasource {:dbtype   "postgresql"
+  (SqlDataStore. (jdbc/get-datasource {:dbtype   "postgresql"
                                        :dbname   database
                                        :user     database-user
                                        :password (-> database-password-file

@@ -28,6 +28,9 @@
    ["-d" "--delay-seconds SECONDS" "Delay between reports."
     :default 360
     :parse-fn #(* 1000 (Integer/parseInt %))]
+   ["-D" "--domain DOMAIN" "Domain to which this host belongs. May be specified more than once."
+    :default []
+    :update-fn conj]
    ["-h" "--help" "Print this mesage."]])
 
 (defn- parse-opts [args required cli-opts]
@@ -107,12 +110,19 @@
     (when (:help options) (msg-quit 0 (usage summary)))
     (let [hostname       (or (:hostname options)
                              (-> (InetAddress/getLocalHost) (.getHostName)))
-          client         (client/connect :hostname hostname
-                                         :server   (:server options)
-                                         :port     (:port options)
-                                         :hmac-key (-> options :key-file (slurp)))
+          client         (client/combine-nexus-clients
+                          (map (fn [domain]
+                                 (client/connect :domain   domain
+                                                 :hostname hostname
+                                                 :server   (:server options)
+                                                 :port     (:port options)
+                                                 :hmac-key (-> options :key-file slurp)))
+                               (:domain options)))
           logger         (log/print-logger)
-          stop-chan      (execute! (:delay-seconds options) logger client)
+          stop-chan      (execute! (:delay-seconds options)
+                                   logger
+                                   client
+                                   (:sshfp options))
           catch-shutdown (chan)]
       (.addShutdownHook (Runtime/getRuntime)
                         (Thread. (fn [] (>!! catch-shutdown true))))

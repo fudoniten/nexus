@@ -38,7 +38,6 @@ in {
           "--database-port=${cfg.database.port}"
           "--listen-host=127.0.0.1"
           "--listen-port=${toString cfg.port}"
-          "--domain=${cfg.domain}"
         ];
 
         LoadCredentials = [

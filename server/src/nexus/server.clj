@@ -1,6 +1,5 @@
 (ns nexus.server
   (:require [reitit.ring :as ring]
-            [reitit.core :as r]
             [clojure.data.json :as json]
             [clojure.pprint :refer [pprint]]
             [clojure.string :as str]
@@ -11,18 +10,18 @@
             [fudo-clojure.common :refer [current-epoch-timestamp parse-epoch-timestamp]]))
 
 (defn- set-host-ipv4 [store]
-  (fn [{:keys [payload]
-       {:keys [host]} :path-params}]
+  (fn [{:keys [body]
+       {:keys [host domain]} :path-params}]
     (try+
-     (let [ip (ip/from-string payload)]
+     (let [ip (ip/from-string body)]
        (when (not (ip/ipv4? ip))
          {:status 400
-          :body (format "rejected: not a v4 IP: %s" payload)})
-       (store/set-host-ipv4 store host ip)
+          :body (format "rejected: not a v4 IP: %s" body)})
+       (store/set-host-ipv4 store domain host ip)
        {:status 200 :body (str ip)})
      (catch IllegalArgumentException _
        {:status 400
-        :body (format "rejected: failed to parse IP: %s" payload)})
+        :body (format "rejected: failed to parse IP: %s" body)})
      (catch Exception e
        ;; FIXME: don't spill the beans
        {:status 500
@@ -30,18 +29,18 @@
                       (.toString e))}))))
 
 (defn- set-host-ipv6 [store]
-  (fn [{:keys [payload]
-       {:keys [host]} :path-params}]
+  (fn [{:keys [body]
+       {:keys [host domain]} :path-params}]
     (try+
-     (let [ip (ip/from-string payload)]
+     (let [ip (ip/from-string body)]
        (when (not (ip/ipv6? ip))
          {:status 400
-          :body (format "rejected: not a v6 IP: %s" payload)})
-       (store/set-host-ipv4 store host ip)
+          :body (format "rejected: not a v6 IP: %s" body)})
+       (store/set-host-ipv4 store domain host ip)
        {:status 200 :body (str ip)})
      (catch IllegalArgumentException _
        {:status 400
-        :body (format "rejected: failed to parse IP: %s" payload)})
+        :body (format "rejected: failed to parse IP: %s" body)})
      (catch Exception e
        ;; FIXME: don't spill the beans
        {:status 500
@@ -52,34 +51,57 @@
   (not (nil? (re-matches #"^[12346] [12] [0-9a-fA-F ]{20,256}$" sshfp))))
 
 (defn- set-host-sshfps [store]
-  (fn [{:keys [payload]
-       {:keys [host]} :path-params}]
+  (fn [{:keys [body]
+       {:keys [host domain]} :path-params}]
     (try+
-     (if (not (every? valid-sshfp? payload))
+     (if (not (every? valid-sshfp? body))
        {:status 400 :body "rejected: invalid sshfp"}
-       (do (store/set-host-sshfps store host payload)
-           {:status 200 :body payload}))
+       (do (store/set-host-sshfps store domain host body)
+           {:status 200 :body body}))
      (catch Exception e
        ;; FIXME: don't spill the beans
        {:status 500
-        :body (format "an unknown error has occurred: %s"
-                      (.toString e))}))))
+        :body {:error (format "an unknown error has occurred: %s"
+                              (.toString e))}}))))
 
-(defn- get-host-ipv4 [req]
-  (pprint req))
+(defn- get-host-ipv4 [store]
+  (fn [{{:keys [host domain]} :path-params}]
+    (try+
+     (let [ip (store/get-host-ipv4 store domain host)]
+       (if ip
+         {:status 200 :body (str ip)}
+         {:status 404 :body (format "IPv4 for %s.%s not found." host domain)}))
+     (catch Exception e
+       {:status 500
+        :body {:error (format "an unknown error has occurred: %s"
+                              (.toString e))}}))))
 
-(defn- get-host-ipv6 [req]
-  (pprint req))
+(defn- get-host-ipv6 [store]
+  (fn [{{:keys [host domain]} :path-params}]
+    (try+
+     (let [ip (store/get-host-ipv6 store domain host)]
+       (if ip
+         {:status 200 :body (str ip)}
+         {:status 404 :body (format "IPv6 for %s.%s not found." host domain)}))
+     (catch Exception e
+       {:status 500
+        :body {:error (format "an unknown error has occurred: %s"
+                              (.toString e))}}))))
 
-(defn- get-host-sshfps [req]
-  (pprint req))
+(defn- get-host-sshfps [store]
+  (fn [{{:keys [host domain]} :path-params}]
+    (try+
+     (let [sshfps (store/get-host-sshfps store domain host)]
+       (if sshfps
+         {:status 200 :body sshfps}
+         {:status 404 :body (format "SSHFP for %s.%s not found." host domain)}))
+     (catch Exception e
+       {:status 500
+        :body {:error (format "an unknown error has occurred: %s"
+                              (.toString e))}}))))
 
-(defn- decode-payload [handler _]
-  (fn [req]
-    (handler (->> req
-                  :body
-                  json/read-str
-                  (assoc req :payload)))))
+(defn- decode-body [handler _]
+  (fn [req] (handler (update req :body json/read-str))))
 
 (defn- encode-body [handler _]
   (fn [req]
@@ -121,12 +143,13 @@
 
 (defn create-app [{:keys [authenticator data-store max-delay]}]
   (ring/ring-handler
-   (ring/router ["/api" {:middleware [decode-payload encode-body (make-timing-validator max-delay)]}
-                 ["/:host" {:middleware [(make-host-signature-authenticator authenticator)]}
-                  ["/ipv4" {:put {:handler (set-host-ipv4 data-store)}
-                            :get {:handler (get-host-ipv4 data-store)}}]
-                  ["/ipv6" {:put {:handler (set-host-ipv6 data-store)}
-                            :get {:handler (get-host-ipv6 data-store)}}]
-                  ["/sshfps" {:put {:handler (set-host-sshfps data-store)}
-                              :get {:handler (get-host-sshfps data-store)}}]]]
+   (ring/router ["/api" {:middleware [decode-body encode-body (make-timing-validator max-delay)]}
+                 ["/:domain"
+                  ["/:host" {:middleware [(make-host-signature-authenticator authenticator)]}
+                   ["/ipv4" {:put {:handler (set-host-ipv4 data-store)}
+                             :get {:handler (get-host-ipv4 data-store)}}]
+                   ["/ipv6" {:put {:handler (set-host-ipv6 data-store)}
+                             :get {:handler (get-host-ipv6 data-store)}}]
+                   ["/sshfps" {:put {:handler (set-host-sshfps data-store)}
+                               :get {:handler (get-host-sshfps data-store)}}]]]]
                 (ring/create-default-handler))))
