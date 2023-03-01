@@ -150,7 +150,7 @@ in {
 
       listen-addresses = mkOption {
         type = listOf str;
-        descritpion = "List of addresses on which to listen for requests.";
+        description = "List of addresses on which to listen for requests.";
         default = [ "0.0.0.0" ];
       };
 
