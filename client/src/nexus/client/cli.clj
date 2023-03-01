@@ -7,7 +7,8 @@
             [clojure.core.async :refer [chan >!! <!! go-loop timeout alt!]]
             [fudo-clojure.http.client :as http]
             [fudo-clojure.result :as result])
-  (:import java.net.InetAddress))
+  (:import java.net.InetAddress)
+  (:gen-class))
 
 (def cli-opts
   [["-4" "--ipv4" "Send IPv4 address to the DDNS server."

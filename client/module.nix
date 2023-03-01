@@ -5,7 +5,7 @@ packages:
 with lib;
 let
   nexus-client = packages."${pkgs.system}".nexus-client;
-  cfg = config.fudo.nexus.client;
+  cfg = config.nexus.client;
 in {
   imports = [ ../options.nix ];
 
@@ -32,8 +32,8 @@ in {
             ExecStart = pkgs.writeShellScript "nexus-client.sh"
               (concatStringsSep " " [
                 "nexus-client"
-                "--server=${config.fudo.nexus.server.hostname}"
-                "--port=${config.fudo.nexus.server.port}"
+                "--server=${config.nexus.server.hostname}"
+                "--port=${config.nexus.server.port}"
                 "--delay-seconds=${toString cfg.delay-seconds}"
                 "--hostname=${cfg.hostname}"
                 "--key-file=$CREDENTIALS_DIRECTORY/hmac.key"

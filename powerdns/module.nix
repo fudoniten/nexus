@@ -2,9 +2,7 @@
 
 with lib;
 let
-  nexus-cfg = config.fudo.nexus.server;
-
-  cfg = config.fudo.nexus.dns-server;
+  cfg = config.nexus.dns-server;
 
   target-gpgsql-config = "${runtime-dir}/pdns.local.gpgsql.conf";
 
@@ -105,24 +103,6 @@ in {
       allowedUDPPorts = [ cfg.port ];
     };
 
-    fudo.system.services.powerdns-config-generator = {
-      description = "Generate PostgreSQL config for backplane DNS server.";
-      type = "oneshot";
-      restartIfChanged = true;
-      readWritePaths = [ runtime-dir ];
-      user = cfg.user;
-      execStart = let
-        script = pkgs.writeShellScript "generate-powerdns-config.sh" ''
-          TARGET=${target-gpgsql-config}
-          touch $TARGET
-          chown ${cfg.user}:${cfg.group} $TARGET
-          chmod 0700 $TARGET
-          PASSWORD=$( cat ${cfg.database.password-file} | tr -d '\n')
-          sed -e 's/__PASSWORD__/$PASSWORD/' ${gpgsql-template} > $TARGET
-        '';
-      in "${script}";
-    };
-
     systemd = let
       pgpass-file = "${runtime-dir}/pgpass";
 
@@ -156,6 +136,24 @@ in {
       tmpfiles.rules = [ "d ${runtime-dir} 0750 ${cfg.user} ${cfg.group} - -" ];
 
       services = initialize-jobs // {
+        powerdns-config-generator = {
+          description = "Generate PostgreSQL config for backplane DNS server.";
+          type = "oneshot";
+          restartIfChanged = true;
+          readWritePaths = [ runtime-dir ];
+          user = cfg.user;
+          execStart = let
+            script = pkgs.writeShellScript "generate-powerdns-config.sh" ''
+              TARGET=${target-gpgsql-config}
+              touch $TARGET
+              chown ${cfg.user}:${cfg.group} $TARGET
+              chmod 0700 $TARGET
+              PASSWORD=$( cat ${cfg.database.password-file} | tr -d '\n')
+              sed -e 's/__PASSWORD__/$PASSWORD/' ${gpgsql-template} > $TARGET
+            '';
+          in "${script}";
+        };
+
         powerdns-generate-pgpass = {
           description = "Create pgpass file required for database init.";
           serviceConfig = {

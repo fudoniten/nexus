@@ -5,7 +5,7 @@ packages:
 with lib;
 let
   nexus-server = packages."${pkgs.system}".nexus-server;
-  cfg = config.fudo.nexus.server;
+  cfg = config.nexus.server;
 
 in {
   imports = [ ../options.nix ];
@@ -20,13 +20,6 @@ in {
         locations."/".proxyPass = "http://127.0.0.1:${cfg.port}";
       };
     };
-
-    # TODO: This should be done in config
-    # fudo.secrets.host-secrets."${hostname}".nexus-client-keys = {
-    #   source-file = pkgs.writeText "host-keys.json"
-    #     (toJSON (mapAttrs (_: filename: readFile filename) cfg.host-keys));
-    #   target-file = "/run/nexus-server/host-keys.json";
-    # };
 
     systemd.services.nexus-server = {
       path = [ nexus-server ];

@@ -22,6 +22,32 @@ let
         default = { };
       };
 
+      records = let
+        recordOpts = { name, ... }: {
+          options = {
+            name = mkOption {
+              type = str;
+              description = "Name of this record.";
+              default = name;
+            };
+
+            type = mkOption {
+              type = str;
+              description = "Record type of this record.";
+            };
+
+            content = mkOption {
+              type = str;
+              description = "Data associated with this record.";
+            };
+          };
+        };
+      in mkOption {
+        type = listOf (submodule recordOpts);
+        description = "Records to be manually inserted into the database.";
+        default = [ ];
+      };
+
       gssapi-realm = mkOption {
         type = nullOr str;
         description = "GSSAPI (Kerberos) realm associated with this domain.";
@@ -49,7 +75,7 @@ let
             };
             ipv6-address = mkOption {
               type = nullOr str;
-              description = "Nameserver V4 IP.";
+              description = "Nameserver V6 IP.";
               default = null;
             };
           };
@@ -87,7 +113,7 @@ let
     };
   };
 in {
-  options.fudo.nexus = with lib.types; {
+  options.nexus = with lib.types; {
     domains = mkOption {
       type = attrsOf domainOpts;
       description = "Map of domains served by Nexus to domain options.";
@@ -125,6 +151,7 @@ in {
       listen-addresses = mkOption {
         type = listOf str;
         descritpion = "List of addresses on which to listen for requests.";
+        default = [ "0.0.0.0" ];
       };
 
       enable-dnssec = mkEnableOption "Enable DNSSEC for this domain.";
