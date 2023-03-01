@@ -27,7 +27,7 @@ in {
             ExecStartPre = let
               cmds = map (filename:
                 "ssh-keygen -r -f $CREDENTIALS_DIRECTORY/${filename} > $CACHE_DIRECTORY/${filename}.fp")
-                (attrNames keys);
+                (attrNames sshKeys);
             in pkgs.writeShellScript "generate-sshfps.sh" "\n";
             ExecStart = pkgs.writeShellScript "nexus-client.sh"
               (concatStringsSep " " [
@@ -40,7 +40,8 @@ in {
               ] ++ (map (dom: "--domain=${dom}") cfg.domains)
                 ++ (optional cfg.ipv4 "--ipv4") ++ (optional cfg.ipv6 "--ipv6")
                 ++ (optionals cfg.sshfps
-                  (map (filename: "--sshfp=${filename}.sp") (attrNames keys))));
+                  (map (filename: "--sshfp=${filename}.sp")
+                    (attrNames sshKeys))));
           };
         };
       };
