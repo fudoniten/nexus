@@ -158,7 +158,7 @@ in {
 
       debug = mkOption {
         type = bool;
-        descrition = "Enable verbose debugging.";
+        description = "Enable verbose debugging.";
         default = false;
       };
 
