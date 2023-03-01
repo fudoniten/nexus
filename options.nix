@@ -264,7 +264,7 @@ in {
       };
 
       hmac-key-file = mkOption {
-        type = listOf str;
+        type = str;
         description = "Path (on local host) of file containing HMAC key.";
       };
     };
