@@ -14,7 +14,7 @@ in {
       services = {
         nexus-client = let
           sshKeys = listToAttrs
-            (map (key: nameValuePairs (baseNameOf key.path) key.path)
+            (map (key: nameValuePair (baseNameOf key.path) key.path)
               config.services.openssh.hostKeys);
         in {
           path = [ nexus-client pkgs.openssh ];
