@@ -33,7 +33,7 @@ in {
               (concatStringsSep " " [
                 "nexus-client"
                 "--server=${config.nexus.server.hostname}"
-                "--port=${config.nexus.server.port}"
+                "--port=${toString config.nexus.server.port}"
                 "--delay-seconds=${toString cfg.delay-seconds}"
                 "--hostname=${cfg.hostname}"
                 "--key-file=$CREDENTIALS_DIRECTORY/hmac.key"
