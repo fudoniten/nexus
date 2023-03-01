@@ -30,7 +30,7 @@ in {
                 (attrNames sshKeys);
             in pkgs.writeShellScript "generate-sshfps.sh" "\n";
             ExecStart = pkgs.writeShellScript "nexus-client.sh"
-              (concatStringsSep " " [
+              (concatStringsSep " " ([
                 "nexus-client"
                 "--server=${config.nexus.server.hostname}"
                 "--port=${toString config.nexus.server.port}"
@@ -41,7 +41,7 @@ in {
                 ++ (optional cfg.ipv4 "--ipv4") ++ (optional cfg.ipv6 "--ipv6")
                 ++ (optionals cfg.sshfps
                   (map (filename: "--sshfp=${filename}.sp")
-                    (attrNames sshKeys))));
+                    (attrNames sshKeys)))));
           };
         };
       };
