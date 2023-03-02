@@ -25,7 +25,7 @@
       packages = rec {
         default = nexus-client;
         nexus-client = nexus-client.packages."${system}".nexus-client;
-        nexus-crypto = nexus-client.packages."${system}".nexus-crypto;
+        nexus-keygen = nexus-client.packages."${system}".nexus-keygen;
         nexus-server = nexus-client.packages."${system}".nexus-server;
       };
     }) // {
