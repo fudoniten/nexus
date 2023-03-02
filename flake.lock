@@ -323,11 +323,11 @@
         "utils": "utils_2"
       },
       "locked": {
-        "lastModified": 1677790752,
-        "narHash": "sha256-0fUgUjzq1o6BwZaYGLb1uIMbylPVVUxXeIoxWrjlfwI=",
+        "lastModified": 1677791113,
+        "narHash": "sha256-PKf/JY4SCraPdZseHtXWb52wu+t/2UJA0Dx2ATb7PCM=",
         "ref": "refs/heads/master",
-        "rev": "576376f985d6adfa2eda3a6d7dff9d26c64b1123",
-        "revCount": 28,
+        "rev": "5a1756832e7394120aec0e3a85b31affd48abf16",
+        "revCount": 29,
         "type": "git",
         "url": "https://git.fudo.org/fudo-public/nix-helpers.git"
       },
@@ -347,11 +347,11 @@
         "utils": "utils_5"
       },
       "locked": {
-        "lastModified": 1677790752,
-        "narHash": "sha256-0fUgUjzq1o6BwZaYGLb1uIMbylPVVUxXeIoxWrjlfwI=",
+        "lastModified": 1677791113,
+        "narHash": "sha256-PKf/JY4SCraPdZseHtXWb52wu+t/2UJA0Dx2ATb7PCM=",
         "ref": "refs/heads/master",
-        "rev": "576376f985d6adfa2eda3a6d7dff9d26c64b1123",
-        "revCount": 28,
+        "rev": "5a1756832e7394120aec0e3a85b31affd48abf16",
+        "revCount": 29,
         "type": "git",
         "url": "https://git.fudo.org/fudo-public/nix-helpers.git"
       },
@@ -371,11 +371,11 @@
         "utils": "utils_8"
       },
       "locked": {
-        "lastModified": 1677790752,
-        "narHash": "sha256-0fUgUjzq1o6BwZaYGLb1uIMbylPVVUxXeIoxWrjlfwI=",
+        "lastModified": 1677791113,
+        "narHash": "sha256-PKf/JY4SCraPdZseHtXWb52wu+t/2UJA0Dx2ATb7PCM=",
         "ref": "refs/heads/master",
-        "rev": "576376f985d6adfa2eda3a6d7dff9d26c64b1123",
-        "revCount": 28,
+        "rev": "5a1756832e7394120aec0e3a85b31affd48abf16",
+        "revCount": 29,
         "type": "git",
         "url": "https://git.fudo.org/fudo-public/nix-helpers.git"
       },
@@ -391,11 +391,11 @@
         "utils": "utils_3"
       },
       "locked": {
-        "lastModified": 1677790815,
-        "narHash": "sha256-XJDL8nGeRPXinQ0j2Juw5HIrKCQ6x7QcnPkEzlViO14=",
+        "lastModified": 1677791189,
+        "narHash": "sha256-kue52mq3boTFHZa3TCU+CjBngp40q1Nqcr2ofEHum9g=",
         "ref": "refs/heads/master",
-        "rev": "2716e0745537709690114daf219c6399fe31ad1e",
-        "revCount": 4,
+        "rev": "b17bb59d920bd7d6fcc5ccc02dfe32a6aa318aa1",
+        "revCount": 5,
         "type": "git",
         "url": "https://git.fudo.org/fudo-public/nexus-client.git"
       },
@@ -411,11 +411,11 @@
         "utils": "utils_6"
       },
       "locked": {
-        "lastModified": 1677790823,
-        "narHash": "sha256-yiTWWdgOCW+Vb5adawcBuZsXP0IpX4ldEz+aLpuPV1k=",
+        "lastModified": 1677791198,
+        "narHash": "sha256-HEQa0w3LQWHDWMPoXAXS9+GWSV2DD7eUCHu0yh/BVfQ=",
         "ref": "refs/heads/master",
-        "rev": "355f27f20e8186ca09c843a67b622644aaa208cf",
-        "revCount": 7,
+        "rev": "d8460482a484d6758394a629f6b890173557a29e",
+        "revCount": 8,
         "type": "git",
         "url": "https://git.fudo.org/fudo-public/nexus-crypto.git"
       },
@@ -431,11 +431,11 @@
         "utils": "utils_9"
       },
       "locked": {
-        "lastModified": 1677790830,
-        "narHash": "sha256-BzdhiJhX1tRs3qxunyEjdPqvAB6U9d2LAvNglUpXuNU=",
+        "lastModified": 1677791205,
+        "narHash": "sha256-ieV13ZFWbhih6mM8OjwdZWRFr6aFvVxddJXfJZQwcAw=",
         "ref": "refs/heads/master",
-        "rev": "084892e45521f74c9ac930a3cf781bcaac391fdd",
-        "revCount": 5,
+        "rev": "1ff5ea02a0c291bfa4ac6706af070b9327394c00",
+        "revCount": 6,
         "type": "git",
         "url": "https://git.fudo.org/fudo-public/nexus-server.git"
       },
