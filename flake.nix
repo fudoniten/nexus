@@ -3,81 +3,36 @@
 
   inputs = {
     nixpkgs.url = "nixpkgs/nixos-22.05";
-    utils.url = "github:numtide/flake-utils";
-    clj-nix = {
-      url = "github:jlesquembre/clj-nix";
-      inputs.nixpkgs.follows = "nixpkgs";
+    nexus-client = {
+      url = "git+https://git.fudo.org/fudo-public/nexus-client.git";
+      flake = false;
     };
+    nexus-server = {
+      url = "git+https://git.fudo.org/fudo-public/nexus-server.git";
+      flake = false;
+    };
+    nexus-crypto = {
+      url = "git+https://git.fudo.org/fudo-public/nexus-crypto.git";
+      flake = false;
+    };
+    utils.url = "github:numtide/flake-utils";
   };
 
-  outputs = { self, nixpkgs, utils, clj-nix, ... }:
-    utils.lib.eachDefaultSystem (system:
-      let
-        pkgs = nixpkgs.legacyPackages."${system}";
-        cljpkgs = clj-nix.packages."${system}";
-      in {
-        packages = let jdkRunner = pkgs.jdk17_headless;
-        in {
-          nexus-keygen = cljpkgs.mkCljBin {
-            projectSrc = ./crypto;
-            name = "org.fudo/nexus-keygen";
-            main-ns = "nexus.keygen";
-            inherit jdkRunner;
-            lockfile = ./crypto/deps-lock.json;
-          };
-          nexus-crypto = cljpkgs.mkCljLib {
-            projectSrc = ./crypto;
-            name = "org.fudo/nexus.crypto";
-            inherit jdkRunner;
-            lockfile = ./crypto/deps-lock.json;
-          };
-          nexus-server = cljpkgs.mkCljBin {
-            projectSrc = ./server;
-            name = "org.fudo/nexus-server";
-            main-ns = "nexus.server.cli";
-            inherit jdkRunner;
-            lockfile = ./server/deps-lock.json;
-          };
-          nexus-client = cljpkgs.mkCljBin {
-            projectSrc = ./client;
-            name = "org.fudo/nexus-client";
-            main-ns = "nexus.client.cli";
-            inherit jdkRunner;
-            lockfile = ./client/deps-lock.json;
-          };
-        };
+  outputs =
+    { self, nixpkgs, utils, nexus-client, nexus-server, nexus-crypto, ... }:
 
-        # defaultPackage = self.packages."${system}".nexus-client;
-
-        devShell = let
-          update-deps = let
-            update = pkgs.writeShellScript "update-project-deps.sh" ''
-              ${clj-nix.packages."${system}".deps-lock}/bin/deps-lock $@
-            '';
-          in pkgs.writeShellScriptBin "update-deps.sh" ''
-            for dir in crypto server client; do
-              pushd .
-              cd $dir
-              ${update}
-              popd
-            done
-          '';
-        in pkgs.mkShell {
-          buildInputs = with pkgs; [
-            clojure
-            update-deps
-            self.packages."${system}".nexus-keygen
-          ];
-        };
-      }) // {
-        overlay = final: prev: {
-          inherit (self.packages."${prev.system}") nexus-keygen;
-        };
-
-        nixosModules = {
-          nexus-client = import ./client/module.nix self.packages;
-          nexus-powerdns = import ./powerdns/module.nix;
-          nexus-server = import ./server/module.nix self.packages;
-        };
+    utils.lib.eachDefaultSystem (system: {
+      packages = rec {
+        default = nexus-client;
+        nexus-client = nexus-client.packages."${system}".nexus-client;
+        nexus-crypto = nexus-client.packages."${system}".nexus-crypto;
+        nexus-server = nexus-client.packages."${system}".nexus-server;
       };
+    }) // {
+      nixosModules = {
+        nexus-client = import ./client.nix self.packages;
+        nexus-powerdns = import ./powerdns.nix;
+        nexus-server = import ./server.nix self.package;
+      };
+    };
 }

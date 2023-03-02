@@ -1,65 +1,51 @@
 {
   "nodes": {
-    "clj-nix": {
-      "inputs": {
-        "devshell": "devshell",
-        "flake-utils": "flake-utils",
-        "nixpkgs": [
-          "nixpkgs"
-        ]
-      },
+    "nexus-client": {
+      "flake": false,
       "locked": {
-        "lastModified": 1674900782,
-        "narHash": "sha256-rXNLt1X6K2M2JvDuRdpyaJUGtIU+ISiCYK4kx2FycfI=",
-        "owner": "jlesquembre",
-        "repo": "clj-nix",
-        "rev": "fb4d61aae67ae62d0c2c9cdfbfc311c6f7dc4c12",
-        "type": "github"
+        "lastModified": 1677784303,
+        "narHash": "sha256-mc55ckIxAY3r6XbTPVSSQZKwo8p63A837dZY4iRCyZ8=",
+        "ref": "refs/heads/master",
+        "rev": "d44c23f09ebea96a88577fb56abc43da00ed0cd2",
+        "revCount": 1,
+        "type": "git",
+        "url": "https://git.fudo.org/fudo-public/nexus-client.git"
       },
       "original": {
-        "owner": "jlesquembre",
-        "repo": "clj-nix",
-        "type": "github"
+        "type": "git",
+        "url": "https://git.fudo.org/fudo-public/nexus-client.git"
       }
     },
-    "devshell": {
-      "inputs": {
-        "flake-utils": [
-          "clj-nix",
-          "flake-utils"
-        ],
-        "nixpkgs": [
-          "clj-nix",
-          "nixpkgs"
-        ]
-      },
+    "nexus-crypto": {
+      "flake": false,
       "locked": {
-        "lastModified": 1658746384,
-        "narHash": "sha256-CCJcoMOcXyZFrV1ag4XMTpAPjLWb4Anbv+ktXFI1ry0=",
-        "owner": "numtide",
-        "repo": "devshell",
-        "rev": "0ffc7937bb5e8141af03d462b468bd071eb18e1b",
-        "type": "github"
+        "lastModified": 1677783624,
+        "narHash": "sha256-vUIT4Wl6QCFU0HWRjZNV3Vn5ejnOHeCPcmA8aj1ieCI=",
+        "ref": "refs/heads/master",
+        "rev": "a3870897ea6a0fa0eed18d0125a31a5c73b25649",
+        "revCount": 4,
+        "type": "git",
+        "url": "https://git.fudo.org/fudo-public/nexus-crypto.git"
       },
       "original": {
-        "owner": "numtide",
-        "repo": "devshell",
-        "type": "github"
+        "type": "git",
+        "url": "https://git.fudo.org/fudo-public/nexus-crypto.git"
       }
     },
-    "flake-utils": {
+    "nexus-server": {
+      "flake": false,
       "locked": {
-        "lastModified": 1656928814,
-        "narHash": "sha256-RIFfgBuKz6Hp89yRr7+NR5tzIAbn52h8vT6vXkYjZoM=",
-        "owner": "numtide",
-        "repo": "flake-utils",
-        "rev": "7e2a3b3dfd9af950a856d66b0a7d01e3c18aa249",
-        "type": "github"
+        "lastModified": 1677784063,
+        "narHash": "sha256-ifMtW7pEJUuPCJ8ixt7P5X6gocfMikANbaM2BVmDOXg=",
+        "ref": "refs/heads/master",
+        "rev": "96b1e5a940a642f4ec34dcf62a1ed33ab67b3a05",
+        "revCount": 2,
+        "type": "git",
+        "url": "https://git.fudo.org/fudo-public/nexus-server.git"
       },
       "original": {
-        "owner": "numtide",
-        "repo": "flake-utils",
-        "type": "github"
+        "type": "git",
+        "url": "https://git.fudo.org/fudo-public/nexus-server.git"
       }
     },
     "nixpkgs": {
@@ -79,7 +65,9 @@
     },
     "root": {
       "inputs": {
-        "clj-nix": "clj-nix",
+        "nexus-client": "nexus-client",
+        "nexus-crypto": "nexus-crypto",
+        "nexus-server": "nexus-server",
         "nixpkgs": "nixpkgs",
         "utils": "utils"
       }
