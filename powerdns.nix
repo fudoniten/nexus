@@ -95,7 +95,7 @@ let
     '';
 
 in {
-  imports = [ options.nix ];
+  imports = [ ./options.nix ];
 
   config = mkIf cfg.enable {
     networking.firewall = {

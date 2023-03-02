@@ -7,7 +7,7 @@ let
   nexus-client = packages."${pkgs.system}".nexus-client;
   cfg = config.nexus.client;
 in {
-  imports = [ options.nix ];
+  imports = [ ./options.nix ];
 
   config = mkIf cfg.enable {
     systemd = {
