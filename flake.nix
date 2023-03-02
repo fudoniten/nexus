@@ -3,18 +3,9 @@
 
   inputs = {
     nixpkgs.url = "nixpkgs/nixos-22.05";
-    nexus-client = {
-      url = "git+https://git.fudo.org/fudo-public/nexus-client.git";
-      flake = false;
-    };
-    nexus-server = {
-      url = "git+https://git.fudo.org/fudo-public/nexus-server.git";
-      flake = false;
-    };
-    nexus-crypto = {
-      url = "git+https://git.fudo.org/fudo-public/nexus-crypto.git";
-      flake = false;
-    };
+    nexus-client.url = "git+https://git.fudo.org/fudo-public/nexus-client.git";
+    nexus-server.url = "git+https://git.fudo.org/fudo-public/nexus-server.git";
+    nexus-crypto.url = "git+https://git.fudo.org/fudo-public/nexus-crypto.git";
     utils.url = "github:numtide/flake-utils";
   };
 
