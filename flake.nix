@@ -18,15 +18,14 @@
     utils.url = "github:numtide/flake-utils";
   };
 
-  outputs =
-    { self, nixpkgs, utils, nexus-client, nexus-server, nexus-crypto, ... }:
+  outputs = { self, nixpkgs, utils, ... }@inputs:
 
     utils.lib.eachDefaultSystem (system: {
       packages = rec {
         default = nexus-client;
-        nexus-client = nexus-client.packages."${system}".nexus-client;
-        nexus-keygen = nexus-client.packages."${system}".nexus-keygen;
-        nexus-server = nexus-client.packages."${system}".nexus-server;
+        nexus-client = inputs.nexus-client.packages."${system}".nexus-client;
+        nexus-keygen = inputs.nexus-crypto.packages."${system}".nexus-keygen;
+        nexus-server = inputs.nexus-server.packages."${system}".nexus-server;
       };
     }) // {
       nixosModules = {
