@@ -8,7 +8,7 @@ let
   cfg = config.nexus.server;
 
 in {
-  imports = [ ../options.nix ];
+  imports = [ options.nix ];
 
   config = mkIf cfg.enable {
     services.nginx = {
