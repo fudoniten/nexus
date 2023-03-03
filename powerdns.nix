@@ -285,7 +285,7 @@ in {
               '';
             in pkgs.writeShellScript "nexus-powerdns-secure-zones.sh"
             (concatStringsSep "\n"
-              (map signDomain (attrKeys config.nexus.domains)));
+              (map signDomain (attrNames config.nexus.domains)));
             RuntimeDirectory = "nexus-powerdns";
           };
         };
