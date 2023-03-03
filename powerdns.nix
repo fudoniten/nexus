@@ -131,7 +131,7 @@ in {
           };
           path = with pkgs; [ postgresql util-linux ];
           serviceConfig = { ExecStart = initialize-domain-script domain; };
-        }) cfg.domains;
+        }) config.nexus.domains;
     in {
       tmpfiles.rules = [ "d ${runtime-dir} 0750 ${cfg.user} ${cfg.group} - -" ];
 
