@@ -17,7 +17,8 @@ in {
         enableACME = true;
         forceSSL = true;
 
-        locations."/".proxyPass = "http://127.0.0.1:${cfg.internal-port}";
+        locations."/".proxyPass =
+          "http://127.0.0.1:${toString cfg.internal-port}";
       };
     };
 
@@ -32,7 +33,7 @@ in {
             "--database-user=${cfg.database.user}"
             "--database-password-file=$CREDENTIALS_DIRECTORY/db.passwd"
             "--database-host=${cfg.database.host}"
-            "--database-port=${cfg.database.port}"
+            "--database-port=${toString cfg.database.port}"
             "--listen-host=127.0.0.1"
             "--listen-port=${toString cfg.port}"
           ]);
