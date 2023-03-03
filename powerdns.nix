@@ -246,7 +246,7 @@ in {
           after = [ "network-online.target" ];
           wantedBy = [ "multi-user.target" ];
           path = with pkgs; [ powerdns postgresql util-linux ];
-          serviceConfig = let module_directory = "$RUNTIME_DIRECTORY/modules";
+          serviceConfig = let module-directory = "$RUNTIME_DIRECTORY/modules";
           in {
             ExecStartPre = pkgs.writeShellScript "powerdns-init-config.sh"
               (concatStringsSep "\n" [
