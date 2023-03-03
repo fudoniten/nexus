@@ -83,7 +83,7 @@ let
     '';
 
   initialize-domain-script = domain:
-    let domain-name = domain.domain;
+    let domain-name = domain.domain-name;
     in pkgs.writeShellScript "initialize-${domain-name}.sh" ''
       if [ "$( psql -tAc "SELECT id FROM domains WHERE name='${domain-name}'" )" ]; then
         logger "${domain-name} already initialized, skipping"
@@ -107,7 +107,7 @@ in {
       pgpass-file = "${runtime-dir}/pgpass";
 
       initialize-jobs = mapAttrs' (_: domainOpts:
-        let domain-name = domainOpts.domain;
+        let domain-name = domainOpts.domain-name;
         in nameValuePair "powerdns-initialize-${domain-name}" {
           description = "Initialize the ${domain-name} domain";
           requires = [
