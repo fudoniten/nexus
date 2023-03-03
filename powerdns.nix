@@ -272,7 +272,7 @@ in {
                   logger "not securing zone ${domain.domain} in powerdns database"
                 fi
                 ${pkgs.powerdns}/bin/pdnsutil --config-dir=${pdns-config-dir} rectify-zone ${domain.domain}
-              '') cfg.domains));
+              '') config.nexus.domains));
           };
         };
       };
