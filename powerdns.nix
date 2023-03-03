@@ -4,8 +4,6 @@ with lib;
 let
   cfg = config.nexus.dns-server;
 
-  target-gpgsql-config = "${runtime-dir}/pdns.local.gpgsql.conf";
-
   gpgsql-template = { host, database, user, enable-dnssec, debug ? false, ... }:
     pkgs.writeText "pdns.gpgsql.conf.template" ''
       launch+=gpgsql
@@ -46,9 +44,52 @@ let
 
   mkRecord = name: type: content: { inherit name type content; };
 
+  insertOrUpdate = domain: record:
+    let
+      selectClause = concatStringsSep " " [
+        "SELECT *"
+        "FROM domains, records"
+        "WHERE"
+        "records.name='${record.name}'"
+        "AND"
+        "records.type='${record.type}'"
+        "AND"
+        "records.domain_id=domain.id"
+        "AND"
+        "domain.name='${domain}'"
+      ];
+      updateClause = concatStringsSep " " [
+        "UPDATE records"
+        "SET content='${record.content}'"
+        "WHERE"
+        "records.name='${record.name}'"
+        "AND"
+        "records.type='${record.type}'"
+        "AND"
+        "records.domain_id=(SELECT id FROM domain WHERE name='${domain}')"
+      ];
+      insertClause = concatStringsSep " " [
+        "INSERT INTO records (domain_id, name, type, content)"
+        "SELECT"
+        "domain.id,"
+        "'${records.name}',"
+        "'${records.type}',"
+        "'${records.content}'"
+        "FROM domains"
+        "WHERE"
+        "domain.name='${domain}'"
+      ];
+    in ''
+      IF EXISTS (${selectClause});
+        ${updateClause}
+      ELSE
+        ${insertClause}
+      END IF;
+    '';
+
   initialize-domain-sql = domain:
     let
-      domain-name = domain.domain;
+      domain-name = domain.domain-name;
       host-ip = pkgs.lib.network.host-ipv4 config hostname;
       ipv6-net = net: (builtins.match ":" net) != null;
       ipv4-net = net: !(ipv6-net net);
@@ -72,14 +113,14 @@ let
         (mkRecord "_kerberos.${domain-name}" "TXT" ''"domain.gssapi-realm"''))
         ++ (mapAttrsToList (alias: target: mkRecord alias "CNAME" target)
           domain.aliases);
-      records-strings = map (record:
-        "INSERT INTO records (domain_id, name, type, content) SELECT id, '${record.name}', '${record.type}', '${record.content}' FROM domains WHERE name='${domain-name}';")
-        domain-records;
+      records-clauses = map insertOrUpdate domain-records;
     in pkgs.writeText "initialize-${domain-name}.sql" ''
+      BEGIN
       INSERT INTO domains (name, master, type, notified_serial) VALUES ('${domain-name}', '${host-ip}', 'MASTER', '${
         toString config.instance.build-timestamp
-      }');
+      }') WHERE NOT EXISTS (SELECT * FROM domains WHERE name='${domain}');
       ${concatStringsSep "\n" records-strings}
+      COMMIT;
     '';
 
   initialize-domain-script = domain:
@@ -136,23 +177,23 @@ in {
       tmpfiles.rules = [ "d ${runtime-dir} 0750 ${cfg.user} ${cfg.group} - -" ];
 
       services = initialize-jobs // {
-        powerdns-config-generator = {
-          description = "Generate PostgreSQL config for backplane DNS server.";
-          type = "oneshot";
-          restartIfChanged = true;
-          readWritePaths = [ runtime-dir ];
-          user = cfg.user;
-          execStart = let
-            script = pkgs.writeShellScript "generate-powerdns-config.sh" ''
-              TARGET=${target-gpgsql-config}
-              touch $TARGET
-              chown ${cfg.user}:${cfg.group} $TARGET
-              chmod 0700 $TARGET
-              PASSWORD=$( cat ${cfg.database.password-file} | tr -d '\n')
-              sed -e 's/__PASSWORD__/$PASSWORD/' ${gpgsql-template} > $TARGET
-            '';
-          in "${script}";
-        };
+        # powerdns-config-generator = {
+        #   description = "Generate PostgreSQL config for backplane DNS server.";
+        #   type = "oneshot";
+        #   restartIfChanged = true;
+        #   readWritePaths = [ runtime-dir ];
+        #   user = cfg.user;
+        #   execStart = let
+        #     script = pkgs.writeShellScript "generate-powerdns-config.sh" ''
+        #       TARGET=${target-gpgsql-config}
+        #       touch $TARGET
+        #       chown ${cfg.user}:${cfg.group} $TARGET
+        #       chmod 0700 $TARGET
+        #       PASSWORD=$( cat ${cfg.database.password-file} | tr -d '\n')
+        #       sed -e 's/__PASSWORD__/$PASSWORD/' ${gpgsql-template} > $TARGET
+        #     '';
+        #   in "${script}";
+        # };
 
         powerdns-generate-pgpass = {
           description = "Create pgpass file required for database init.";
@@ -177,7 +218,19 @@ in {
             PGPASSFILE = pgpass-file;
           };
           serviceConfig = {
+            ExecStartPre = let
+              initPgpass =
+                make-pgpass-file cfg.user "$RUNTIME_DIRECTORY/pgpass";
+              ncCmd =
+                "${pkgs.netcat}/bin/nc -z ${cfg.database.host} ${cfg.database.port}";
+              pgWaitCmd =
+                "${pkgs.bash}/bin/bash -c 'until ${ncCmd}; do sleep 1; done;'";
+            in pkgs.writeShellScript "powerdns-initialize-db-prep.sh" ''
+              ${initPgpass}
+              ${pgWaitCmd}
+            '';
             ExecStart = pkgs.writeShellScript "powerdns-initialize-db.sh" ''
+              HOME=$RUNTIME_DIRECTORY
               if [ "$( psql -tAc "SELECT to_regclass('public.domains')" )" ]; then
                 logger "database initialized, skipping"
               else
@@ -185,14 +238,6 @@ in {
                 psql -f ${pkgs.powerdns}/share/doc/pdns/schema.pgsql.sql
               fi
             '';
-            ## Doesn't seem to use env vars, and so fails if remote
-            ## Wait until posgresql is available before starting
-            # ExecStartPre =
-            #   pkgs.writeShellScript "ensure-postgresql-running.sh" ''
-            #     while [ ! "$( psql -tAc "SELECT 1" )" ]; do
-            #       ${pkgs.coreutils}/bin/sleep 3
-            #     done
-            #   '';
           };
         };
 
@@ -200,79 +245,45 @@ in {
           description = "Nexus PowerDNS server.";
           after = [ "network-online.target" ];
           wantedBy = [ "multi-user.target" ];
-          path = with pkgs; [ powerdns postgresql ];
-          serviceConfig = {
+          path = with pkgs; [ powerdns postgresql util-linux ];
+          serviceConfig = let module_directory = "$RUNTIME_DIRECTORY/modules";
+          in {
+            ExecStartPre = pkgs.writeShellScript "powerdns-init-config.sh"
+              (concatStringsSep "\n" [
+                ''MOD_DIR="${module-directory}"''
+                ''mkdir -p "${module-directory}"''
+                ''touch "${module-directory}/gpgsql.conf"''
+                ''chown "$USER" "${module-directory}"''
+                ''chmod 700 "${module-directory}"''
+                ''chown "$USER" "${module-directory}/gpgsql.conf"''
+                ''chmod 600 "${module-directory}/gpgsql.conf"''
+                "PASSWORD=$(cat $CREDENTIALS_DIRECTORY/db.passwd)"
+                ''
+                  sed -e "s/__PASSWORD__/$PASSWORD/" > "${module-directory}/gpgsql.conf"''
+              ]);
             ExecStart = concatStringsSep " " [
               "${pkgs.powerdns}/bin/pdns_server"
               "--daemon=no"
               "--guardian=yes"
-              "--config-dir=FIXME"
+              ''--config-dir="${module-directory}"''
             ];
             ExecStartPost = let domain = nexus-cfg.domain;
             in pkgs.writeShellScript "nexus-powerdns-secure-zones.sh" ''
-              DNSINFO=$(${pkgs.powerdns}/bin/pdnsutil --config-dir=${pdns-config-dir} show-zone ${domain})
+              DNSINFO=$(${pkgs.powerdns}/bin/pdnsutil --config-dir=${module-directory} show-zone ${domain})
               if [[ "x$DNSINFO" =~ "xNo such zone in the database" ]]; then
                 logger "zone ${domain} does not exist in powerdns database"
               elif [[ "x$DNSINFO" =~ "xZone is not actively secured" ]]; then
                 logger "securing zone ${domain} in powerdns database"
-                ${pkgs.powerdns}/bin/pdnsutil --config-dir=${pdns-config-dir} secure-zone ${domain}
+                ${pkgs.powerdns}/bin/pdnsutil --config-dir=${module-directory} secure-zone ${domain}
               elif [[ "x$DNSINFO" =~ "xNo keys for zone" ]]; then
                 logger "securing zone ${domain} in powerdns database"
-                ${pkgs.powerdns}/bin/pdnsutil --config-dir=${pdns-config-dir} secure-zone ${domain}
+                ${pkgs.powerdns}/bin/pdnsutil --config-dir=${module-directory} secure-zone ${domain}
               else
                 logger "not securing zone ${domain} in powerdns database"
               fi
-              ${pkgs.powerdns}/bin/pdnsutil --config-dir=${pdns-config-dir} rectify-zone ${domain}
+              ${pkgs.powerdns}/bin/pdnsutil --config-dir=${module-directory} rectify-zone ${domain}
             '';
-          };
-        };
-
-        powerdns = {
-          description = "PowerDNS nameserver.";
-          requires = [ "powerdns-config-generator.service" ];
-          after = [
-            "network.target"
-            "powerdns-config-generator.service"
-            "postgresql.service"
-          ];
-          wantedBy = [ "multi-user.target" ];
-          path = with pkgs; [ powerdns postgresql util-linux ];
-          serviceConfig = {
-            ExecStartPre = pkgs.writeShellScript "powerdns-init-config.sh" ''
-              TARGET=${target-gpgsql-config}
-              touch $TARGET
-              chown ${cfg.user}:${cfg.group} $TARGET
-              chmod 0700 $TARGET
-              PASSWORD=$( cat ${cfg.database.password-file} | tr -d '\n')
-              sed -e "s/__PASSWORD__/$PASSWORD/" ${gpgsql-template} > $TARGET
-            '';
-            ExecStart = pkgs.writeShellScript "launch-powerdns.sh"
-              (concatStringsSep " " [
-                "${pkgs.powerdns}/bin/pdns_server"
-                "--setuid=${cfg.user}"
-                "--setgid=${cfg.group}"
-                "--chroot=${runtime-dir}"
-                "--daemon=no"
-                "--guardian=no"
-                "--write-pid=no"
-                "--config-dir=${pdns-config-dir}"
-              ]);
-            ExecStartPost = pkgs.writeShellScript "powerdns-secure-zones.sh"
-              (concatStringsSep "\n" (mapAttrsToList (_: domain: ''
-                DNSINFO=$(${pkgs.powerdns}/bin/pdnsutil --config-dir=${pdns-config-dir} show-zone ${domain.domain})
-                if [[ "x$DNSINFO" =~ "xNo such zone in the database" ]]; then
-                  logger "zone ${domain.domain} does not exist in powerdns database"
-                elif [[ "x$DNSINFO" =~ "xZone is not actively secured" ]]; then
-                  logger "securing zone ${domain.domain} in powerdns database"
-                  ${pkgs.powerdns}/bin/pdnsutil --config-dir=${pdns-config-dir} secure-zone ${domain.domain}
-                elif [[ "x$DNSINFO" =~ "xNo keys for zone" ]]; then
-                  logger "securing zone ${domain.domain} in powerdns database"
-                  ${pkgs.powerdns}/bin/pdnsutil --config-dir=${pdns-config-dir} secure-zone ${domain.domain}
-                else
-                  logger "not securing zone ${domain.domain} in powerdns database"
-                fi
-                ${pkgs.powerdns}/bin/pdnsutil --config-dir=${pdns-config-dir} rectify-zone ${domain.domain}
-              '') config.nexus.domains));
+            RuntimeDirectory = "nexus-powerdns";
           };
         };
       };

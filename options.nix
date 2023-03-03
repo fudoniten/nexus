@@ -15,7 +15,6 @@ let
         default = "admin@${name}";
       };
 
-      # FIXME: not used ATM...
       aliases = mkOption {
         type = attrsOf str;
         description = "Map of alias to authoritative hostname.";
