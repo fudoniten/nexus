@@ -22,7 +22,7 @@
       nixosModules = {
         nexus-client = import ./client.nix self.packages;
         nexus-powerdns = import ./powerdns.nix;
-        nexus-server = import ./server.nix self.package;
+        nexus-server = import ./server.nix self.packages;
       };
     };
 }
