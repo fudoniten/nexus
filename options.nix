@@ -115,7 +115,7 @@ let
 in {
   options.nexus = with lib.types; {
     domains = mkOption {
-      type = attrsOf domainOpts;
+      type = attrsOf (submodule domainOpts);
       description = "Map of domains served by Nexus to domain options.";
       default = { };
     };

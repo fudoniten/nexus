@@ -106,8 +106,8 @@ in {
     systemd = let
       pgpass-file = "${runtime-dir}/pgpass";
 
-      initialize-jobs = mapAttrs' (_: domain:
-        let domain-name = domain.domain;
+      initialize-jobs = mapAttrs' (_: domainOpts:
+        let domain-name = domainOpts.domain;
         in nameValuePair "powerdns-initialize-${domain-name}" {
           description = "Initialize the ${domain-name} domain";
           requires = [
@@ -130,7 +130,7 @@ in {
             PGPASSFILE = pgpass-file;
           };
           path = with pkgs; [ postgresql util-linux ];
-          serviceConfig = { ExecStart = initialize-domain-script domain; };
+          serviceConfig = { ExecStart = initialize-domain-script domainOpts; };
         }) config.nexus.domains;
     in {
       tmpfiles.rules = [ "d ${runtime-dir} 0750 ${cfg.user} ${cfg.group} - -" ];
