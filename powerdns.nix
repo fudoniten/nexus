@@ -145,8 +145,6 @@ in {
     };
 
     systemd = let
-      pgpass-file = "${runtime-dir}/pgpass";
-
       initialize-jobs = mapAttrs' (_: domainOpts:
         let domain-name = domainOpts.domain-name;
         in nameValuePair "powerdns-initialize-${domain-name}" {
@@ -174,33 +172,7 @@ in {
           serviceConfig = { ExecStart = initialize-domain-script domainOpts; };
         }) config.nexus.domains;
     in {
-      tmpfiles.rules = [ "d ${runtime-dir} 0750 ${cfg.user} ${cfg.group} - -" ];
-
       services = initialize-jobs // {
-        # powerdns-config-generator = {
-        #   description = "Generate PostgreSQL config for backplane DNS server.";
-        #   type = "oneshot";
-        #   restartIfChanged = true;
-        #   readWritePaths = [ runtime-dir ];
-        #   user = cfg.user;
-        #   execStart = let
-        #     script = pkgs.writeShellScript "generate-powerdns-config.sh" ''
-        #       TARGET=${target-gpgsql-config}
-        #       touch $TARGET
-        #       chown ${cfg.user}:${cfg.group} $TARGET
-        #       chmod 0700 $TARGET
-        #       PASSWORD=$( cat ${cfg.database.password-file} | tr -d '\n')
-        #       sed -e 's/__PASSWORD__/$PASSWORD/' ${gpgsql-template} > $TARGET
-        #     '';
-        #   in "${script}";
-        # };
-
-        powerdns-generate-pgpass = {
-          description = "Create pgpass file required for database init.";
-          serviceConfig = {
-            ExecStart = make-pgpass-file cfg.user "${runtime-dir}/pgpass";
-          };
-        };
 
         powerdns-initialize-db = {
           description = "Initialize the powerdns database.";
