@@ -185,8 +185,8 @@ in {
           after = [ "powerdns-generate-pgpass.service" ];
           path = with pkgs; [ postgresql util-linux ];
           environment = {
-            PGHOST = cfg.database.host;
-            PGUSER = cfg.database.user;
+            PGHOST = db-cfg.host;
+            PGUSER = db-cfg.user;
             PGDATABASE = db-cfg.database;
             PGPORT = toString db-cfg.port;
             PGSSLMODE = "require";
