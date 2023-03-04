@@ -103,7 +103,7 @@ let
         ++ [ (mkRecord domain-name "NS" "${nsOpts.name}.${domain-name}") ])
         (attrValues domain.nameservers);
 
-      primaryNameserver = first (attrValues domain.nameservers);
+      primaryNameserver = head (attrValues domain.nameservers);
 
       domain-records = [
         (mkRecord domain-name "SOA"
