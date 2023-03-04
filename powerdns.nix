@@ -88,7 +88,7 @@ let
       END IF;
     '';
 
-  initialize-domain-sql = domain:
+  initializeDomainSql = domain:
     let
       domain-name = domain.domain-name;
       host-ip = pkgs.lib.network.host-ipv4 config hostname;
@@ -124,18 +124,6 @@ let
       COMMIT;
     '';
 
-  initialize-domain-script = domain:
-    let domain-name = domain.domain-name;
-    in pkgs.writeShellScript "initialize-${domain-name}.sh" ''
-      if [ "$( psql -tAc "SELECT id FROM domains WHERE name='${domain-name}'" )" ]; then
-        logger "${domain-name} already initialized, skipping"
-        exit 0
-      else
-        logger "initializing ${domain-name} in powerdns database"
-        psql -f ${initialize-domain-sql domain}
-      fi
-    '';
-
 in {
   imports = [ ./options.nix ];
 
@@ -145,36 +133,8 @@ in {
       allowedUDPPorts = [ cfg.port ];
     };
 
-    systemd = let
-      initialize-jobs = mapAttrs' (_: domainOpts:
-        let domain-name = domainOpts.domain-name;
-        in nameValuePair "powerdns-initialize-${domain-name}" {
-          description = "Initialize the ${domain-name} domain";
-          requires = [
-            "powerdns-initialize-db.service"
-            "powerdns-generate-pgpass.service"
-          ];
-          after = [
-            "powerdns-initialize-db.service"
-            "powerdns-generate-pgpass.service"
-          ];
-          requiredBy = [ "powerdns.service" ];
-          wantedBy = [ "powerdns.service" ];
-          before = [ "powerdns.service" ];
-          environment = {
-            PGHOST = cfg.database.host;
-            PGUSER = cfg.database.user;
-            PGDATABASE = db-cfg.database;
-            PGPORT = toString db-cfg.port;
-            PGSSLMODE = "require";
-            PGPASSFILE = pgpass-file;
-          };
-          path = with pkgs; [ postgresql util-linux ];
-          serviceConfig = { ExecStart = initialize-domain-script domainOpts; };
-        }) config.nexus.domains;
-    in {
-      services = initialize-jobs // {
-
+    systemd = {
+      services = {
         powerdns-initialize-db = let pgpass-file = "$RUNTIME_DIRECTORY/pgpass";
         in {
           description = "Initialize the powerdns database.";
@@ -203,7 +163,17 @@ in {
               ${initPgpass}
               ${pgWaitCmd}
             '';
-            ExecStart = pkgs.writeShellScript "powerdns-initialize-db.sh" ''
+            ExecStart = let
+              initDomainSqlFile = domainOpts:
+                pkgs.writeText "init-${domainOpts.domain-name}.sql"
+                (initializeDomainSql domainOpts);
+              domainInitScript = _: domainOpts:
+                pkgs.writeShellScript "init-${domainOpts.domain-name}.sh" ''
+                  psql -f ${initDomainSqlFile domainOpts}
+                '';
+              domainInitScripts = concatStringsSep "\n"
+                (mapAttrsToList domainInitScript config.nexus.domains);
+            in pkgs.writeShellScript "powerdns-initialize-db.sh" ''
               HOME=$RUNTIME_DIRECTORY
               if [ "$( psql -tAc "SELECT to_regclass('public.domains')" )" ]; then
                 logger "database initialized, skipping"
@@ -211,6 +181,7 @@ in {
                 logger "initializing powerdns database"
                 psql -f ${pkgs.powerdns}/share/doc/pdns/schema.pgsql.sql
               fi
+              ${domainInitScripts}
             '';
           };
         };
