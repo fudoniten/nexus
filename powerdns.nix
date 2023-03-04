@@ -4,7 +4,7 @@ with lib;
 let
   cfg = config.nexus.dns-server;
 
-  db-cfdg = config.nexus.database;
+  db-cfg = config.nexus.database;
 
   gpgsql-template = { host, database, user, enable-dnssec, debug ? false, ... }:
     pkgs.writeText "pdns.gpgsql.conf.template" ''
