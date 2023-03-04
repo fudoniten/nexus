@@ -194,8 +194,7 @@ in {
           serviceConfig = {
             ExecStartPre = let
               initPgpass = make-pgpass-file "$USER" "$RUNTIME_DIRECTORY/pgpass";
-              ncCmd =
-                "${pkgs.netcat}/bin/nc -z ${cfg.database.host} ${cfg.database.port}";
+              ncCmd = "${pkgs.netcat}/bin/nc -z ${db-cfg.host} ${db-cfg.port}";
               pgWaitCmd =
                 "${pkgs.bash}/bin/bash -c 'until ${ncCmd}; do sleep 1; done;'";
             in pkgs.writeShellScript "powerdns-initialize-db-prep.sh" ''
