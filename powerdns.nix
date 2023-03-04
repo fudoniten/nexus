@@ -194,8 +194,7 @@ in {
           };
           serviceConfig = {
             ExecStartPre = let
-              initPgpass =
-                make-pgpass-file cfg.user "$RUNTIME_DIRECTORY/pgpass";
+              initPgpass = make-pgpass-file "$USER" "$RUNTIME_DIRECTORY/pgpass";
               ncCmd =
                 "${pkgs.netcat}/bin/nc -z ${cfg.database.host} ${cfg.database.port}";
               pgWaitCmd =
