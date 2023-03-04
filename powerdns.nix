@@ -186,9 +186,9 @@ in {
           path = with pkgs; [ postgresql util-linux ];
           environment = {
             PGHOST = db-cfg.host;
-            PGUSER = db-cfg.user;
             PGDATABASE = db-cfg.database;
             PGPORT = toString db-cfg.port;
+            PGUSER = cfg.database.user;
             PGSSLMODE = "require";
             PGPASSFILE = pgpass-file;
           };
