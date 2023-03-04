@@ -103,30 +103,30 @@ let
         ++ [ (mkRecord domain-name "NS" "${nsOpts.name}.${domain-name}") ])
         (attrValues domain.nameservers);
 
-      domain-records =
-        let primaryNameserver = first (attrValues domain.nameservers);
-        in [
-          (mkRecord domain-name "SOA"
-            "${primaryNameserver.name}.${domain-name} hostmaster.${domain-name} ${
-              toString config.instance.build-timestamp
-            } 10800 3600 1209600 3600")
-          (mkRecord "_dmark.${domain-name}" "TXT" ''
-            "v=DMARC1; p=reject; rua=mailto:${domain.admin}; ruf=mailto:${domain.admin}; fo=1;"'')
-          (mkRecord domain-name "TXT" (let
-            networks = domain.local-networks;
-            v4-nets = map (net: "ip4:${net}") (filter ipv4-net networks);
-            v6-nets = map (net: "ip6:${net}") (filter ipv6-net networks);
-            networks-string = concatStringsSep " " (v4-nets ++ v6-nets);
-          in ''"v=spf1 mx ${networks-string} -all"''))
-          (mkRecord domain-name "A" host-ip)
-        ] ++ (optional (domain.gssapi-realm != null)
-          (mkRecord "_kerberos.${domain-name}" "TXT" ''"domain.gssapi-realm"''))
+      primaryNameserver = first (attrValues domain.nameservers);
+
+      domain-records = [
+        (mkRecord domain-name "SOA"
+          "${primaryNameserver.name}.${domain-name} hostmaster.${domain-name} ${
+            toString config.instance.build-timestamp
+          } 10800 3600 1209600 3600")
+        (mkRecord "_dmark.${domain-name}" "TXT" ''
+          "v=DMARC1; p=reject; rua=mailto:${domain.admin}; ruf=mailto:${domain.admin}; fo=1;"'')
+        (mkRecord domain-name "TXT" (let
+          networks = domain.local-networks;
+          v4-nets = map (net: "ip4:${net}") (filter ipv4-net networks);
+          v6-nets = map (net: "ip6:${net}") (filter ipv6-net networks);
+          networks-string = concatStringsSep " " (v4-nets ++ v6-nets);
+        in ''"v=spf1 mx ${networks-string} -all"''))
+        (mkRecord domain-name "A" host-ip)
+      ] ++ (optional (domain.gssapi-realm != null)
+        (mkRecord "_kerberos.${domain-name}" "TXT" ''"domain.gssapi-realm"''))
         ++ (mapAttrsToList (alias: target: mkRecord alias "CNAME" target)
           domain.aliases);
       records-clauses = map insertOrUpdate domain-records;
     in pkgs.writeText "initialize-${domain-name}.sql" ''
       BEGIN
-      INSERT INTO domains (name, master, type, notified_serial) VALUES ('${domain-name}', '${host-ip}', 'MASTER', '${
+      INSERT INTO domains (name, master, type, notified_serial) VALUES ('${domain-name}', '${primaryNameserver.ipv4-address}', 'MASTER', '${
         toString config.instance.build-timestamp
       }') WHERE NOT EXISTS (SELECT * FROM domains WHERE name='${domain}');
       ${concatStringsSep "\n" records-strings}
