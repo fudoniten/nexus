@@ -174,7 +174,8 @@ in {
     in {
       services = initialize-jobs // {
 
-        powerdns-initialize-db = {
+        powerdns-initialize-db = let pgpass-file = "$RUNTIME_DIRECTORY/pgpass";
+        in {
           description = "Initialize the powerdns database.";
           requiredBy = [ "powerdns.service" ];
           before = [ "powerdns.service" ];
