@@ -4,6 +4,8 @@ with lib;
 let
   cfg = config.nexus.dns-server;
 
+  db-cfdg = config.nexus.database;
+
   gpgsql-template = { host, database, user, enable-dnssec, debug ? false, ... }:
     pkgs.writeText "pdns.gpgsql.conf.template" ''
       launch+=gpgsql
@@ -163,8 +165,8 @@ in {
           environment = {
             PGHOST = cfg.database.host;
             PGUSER = cfg.database.user;
-            PGDATABASE = cfg.database.database;
-            PGPORT = toString cfg.database.port;
+            PGDATABASE = db-cfg.database;
+            PGPORT = toString db-cfg.port;
             PGSSLMODE = "require";
             PGPASSFILE = pgpass-file;
           };
@@ -185,8 +187,8 @@ in {
           environment = {
             PGHOST = cfg.database.host;
             PGUSER = cfg.database.user;
-            PGDATABASE = cfg.database.database;
-            PGPORT = toString cfg.database.port;
+            PGDATABASE = db-cfg.database;
+            PGPORT = toString db-cfg.port;
             PGSSLMODE = "require";
             PGPASSFILE = pgpass-file;
           };
