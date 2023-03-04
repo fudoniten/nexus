@@ -33,15 +33,14 @@ let
     '';
 
   make-pgpass-file = user: target-file:
-    let db = cfg.database;
-    in pkgs.writeShellScript "genenrate-pgpass-file.sh" ''
+    pkgs.writeShellScript "genenrate-pgpass-file.sh" ''
       touch ${target-file}
       chown ${user} ${target-file}
       chmod 700 ${target-file}
-      PASSWORD=$(cat ${db.password-file})
-      echo "${db.host}:${
-        toString db.port
-      }:${db.database}:${db.user}:__PASSWORD__" | sed "s/__PASSWORD__/$PASSWORD/" > ${target-file}
+      PASSWORD=$(cat ${cfg.database.password-file})
+      echo "${db-cfg.host}:${
+        toString db-cfg.port
+      }:${db-cfg.database}:${cfg.database.user}:__PASSWORD__" | sed "s/__PASSWORD__/$PASSWORD/" > ${target-file}
     '';
 
   mkRecord = name: type: content: { inherit name type content; };
