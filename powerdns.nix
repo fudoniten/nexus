@@ -88,30 +88,39 @@ let
       END IF;
     '';
 
+  mapConcatAttrsToList = f: as: concatLists (mapAttrsToList f as);
+
   initializeDomainSql = domain:
     let
       domain-name = domain.domain-name;
-      host-ip = pkgs.lib.network.host-ipv4 config hostname;
       ipv6-net = net: (builtins.match ":" net) != null;
       ipv4-net = net: !(ipv6-net net);
-      domain-records = [
-        (mkRecord domain-name "SOA"
-          "ns1.${domain-name} hostmaster.${domain-name} ${
-            toString config.instance.build-timestamp
-          } 10800 3600 1209600 3600")
-        (mkRecord "_dmark.${domain-name}" "TXT" ''
-          "v=DMARC1; p=reject; rua=mailto:${domain.admin}; ruf=mailto:${domain.admin}; fo=1;"'')
-        (mkRecord domain-name "NS" "ns1.${domain-name}")
-        (mkRecord domain-name "TXT" (let
-          networks = config.instance.local-networks;
-          v4-nets = map (net: "ip4:${net}") (filter ipv4-net networks);
-          v6-nets = map (net: "ip6:${net}") (filter ipv6-net networks);
-          networks-string = concatStringsSep " " (v4-nets ++ v6-nets);
-        in ''"v=spf1 mx ${networks-string} -all"''))
-        (mkRecord "ns1.${domain-name}" "A" host-ip)
-        (mkRecord domain-name "A" host-ip)
-      ] ++ (optional (domain.gssapi-realm != null)
-        (mkRecord "_kerberos.${domain-name}" "TXT" ''"domain.gssapi-realm"''))
+      ns-records = mapConcat (nsOpts:
+        (optional (nsOpts.ipv4-address != null) mkRecord
+          "${nsOpts.name}.${domain-name}" "A" nsOpts.ipv4-address)
+        ++ (optional (nsOpts.ipv6-address != null) mkRecord
+          "${nsOpts.name}.${domain-name}" "AAAA" nsOpts.ipv4-address)
+        ++ [ (mkRecord domain-name "NS" "${nsOpts.name}.${domain-name}") ])
+        (attrValues domain.nameservers);
+
+      domain-records =
+        let primaryNameserver = first (attrValues domain.nameservers);
+        in [
+          (mkRecord domain-name "SOA"
+            "${primaryNameserver.name}.${domain-name} hostmaster.${domain-name} ${
+              toString config.instance.build-timestamp
+            } 10800 3600 1209600 3600")
+          (mkRecord "_dmark.${domain-name}" "TXT" ''
+            "v=DMARC1; p=reject; rua=mailto:${domain.admin}; ruf=mailto:${domain.admin}; fo=1;"'')
+          (mkRecord domain-name "TXT" (let
+            networks = domain.local-networks;
+            v4-nets = map (net: "ip4:${net}") (filter ipv4-net networks);
+            v6-nets = map (net: "ip6:${net}") (filter ipv6-net networks);
+            networks-string = concatStringsSep " " (v4-nets ++ v6-nets);
+          in ''"v=spf1 mx ${networks-string} -all"''))
+          (mkRecord domain-name "A" host-ip)
+        ] ++ (optional (domain.gssapi-realm != null)
+          (mkRecord "_kerberos.${domain-name}" "TXT" ''"domain.gssapi-realm"''))
         ++ (mapAttrsToList (alias: target: mkRecord alias "CNAME" target)
           domain.aliases);
       records-clauses = map insertOrUpdate domain-records;
