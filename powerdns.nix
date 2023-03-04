@@ -128,7 +128,7 @@ let
       BEGIN
       INSERT INTO domains (name, master, type, notified_serial) VALUES ('${domain-name}', '${primaryNameserver.ipv4-address}', 'MASTER', '${
         toString config.instance.build-timestamp
-      }') WHERE NOT EXISTS (SELECT * FROM domains WHERE name='${domain}');
+      }') WHERE NOT EXISTS (SELECT * FROM domains WHERE name='${domain-name}');
       ${concatStringsSep "\n" records-strings}
       COMMIT;
     '';
