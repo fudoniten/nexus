@@ -113,7 +113,7 @@ let
         (mkRecord "_dmark.${domain-name}" "TXT" ''
           "v=DMARC1; p=reject; rua=mailto:${domain.admin}; ruf=mailto:${domain.admin}; fo=1;"'')
         (mkRecord domain-name "TXT" (let
-          networks = domain.local-networks;
+          networks = domain.trusted-networks;
           v4-nets = map (net: "ip4:${net}") (filter ipv4-net networks);
           v6-nets = map (net: "ip6:${net}") (filter ipv6-net networks);
           networks-string = concatStringsSep " " (v4-nets ++ v6-nets);
