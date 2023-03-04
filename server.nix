@@ -6,6 +6,7 @@ with lib;
 let
   nexus-server = packages."${pkgs.system}".nexus-server;
   cfg = config.nexus.server;
+  db-cfg = config.nexus.database;
 
 in {
   imports = [ ./options.nix ];
@@ -29,11 +30,11 @@ in {
           (concatStringsSep " " [
             "nexus-server"
             "--host-keys=$CREDENTIALS_DIRECTORY/host-keys.json"
-            "--database=${cfg.database.database}"
+            "--database=${db-cfg.database}"
             "--database-user=${cfg.database.user}"
             "--database-password-file=$CREDENTIALS_DIRECTORY/db.passwd"
-            "--database-host=${cfg.database.host}"
-            "--database-port=${toString cfg.database.port}"
+            "--database-host=${db-cfg.host}"
+            "--database-port=${toString db-cfg.port}"
             "--listen-host=127.0.0.1"
             "--listen-port=${toString cfg.port}"
           ]);
