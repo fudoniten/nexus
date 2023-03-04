@@ -118,12 +118,11 @@ let
           v6-nets = map (net: "ip6:${net}") (filter ipv6-net networks);
           networks-string = concatStringsSep " " (v4-nets ++ v6-nets);
         in ''"v=spf1 mx ${networks-string} -all"''))
-        (mkRecord domain-name "A" host-ip)
       ] ++ (optional (domain.gssapi-realm != null)
         (mkRecord "_kerberos.${domain-name}" "TXT" ''"domain.gssapi-realm"''))
         ++ (mapAttrsToList (alias: target: mkRecord alias "CNAME" target)
           domain.aliases);
-      records-clauses = map insertOrUpdate domain-records;
+      records-clauses = map (insertOrUpdate domain-name) domain-records;
     in pkgs.writeText "initialize-${domain-name}.sql" ''
       BEGIN
       INSERT INTO domains (name, master, type, notified_serial) VALUES ('${domain-name}', '${primaryNameserver.ipv4-address}', 'MASTER', '${
