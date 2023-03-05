@@ -138,7 +138,7 @@ let
         ++ (mapAttrsToList (alias: target: mkRecord alias "CNAME" target)
           domain.aliases);
       records-clauses = map (insertOrUpdate domain-name) domain-records;
-    in pkgs.writeText "initialize-${domain-name}.sql" ''
+    in ''
       BEGIN
       INSERT INTO domains (name, master, type, notified_serial) VALUES ('${domain-name}', '${primaryNameserver.ipv4-address}', 'MASTER', '${
         toString config.instance.build-timestamp
