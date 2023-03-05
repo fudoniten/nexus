@@ -170,10 +170,8 @@ in {
           '';
         in {
           description = "Initialize the powerdns database.";
-          requiredBy = [ "powerdns.service" ];
-          before = [ "powerdns.service" ];
-          requires = [ "powerdns-generate-pgpass.service" ];
-          after = [ "powerdns-generate-pgpass.service" ];
+          requiredBy = [ "nexus-powerdns.service" ];
+          before = [ "nexus-powerdns.service" ];
           path = with pkgs; [ postgresql util-linux ];
           environment = {
             PGHOST = db-cfg.host;
