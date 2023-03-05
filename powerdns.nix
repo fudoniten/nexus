@@ -43,7 +43,7 @@ let
       '';
       moduleDirectory = "${target-dir}/modules";
       genGpgsqlConfScript =
-        gpgsqlTemplate "${moduleDirectory}/gpgsql.conf" config;
+        genGpgsqlConfig "${moduleDirectory}/gpgsql.conf" config;
     in pkgs.writeShellScript "gen-pdns-config.sh" ''
       mkdir -p ${target-dir}
       touch ${target-dir}/pdns.conf
