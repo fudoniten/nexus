@@ -159,11 +159,10 @@ in {
     systemd = {
       services = {
         nexus-powerdns-initialize-db = let
-          pgpassFile = "$RUNTIME_DIRECTORY/pgpass";
+          pgpassFile = "$RUNTIME_DIRECTORY/.pgpass";
           mkPgpassFile = pkgs.writeShellScript "genenrate-pgpass-file.sh" ''
             touch ${pgpassFile}
             chmod 700 ${pgpassFile}
-            ls -l $CREDENTIALS_DIRECTORY
             PASSWORD=$(cat $CREDENTIALS_DIRECTORY/db.passwd)
             echo "${db-cfg.host}:${
               toString db-cfg.port
@@ -204,7 +203,7 @@ in {
                 (mapAttrsToList domainInitScript config.nexus.domains);
             in pkgs.writeShellScript "powerdns-initialize-db.sh" ''
               ${mkPgpassFile}
-              HOME=$RUNTIME_DIRECTORY
+              export HOME=$RUNTIME_DIRECTORY
               if [ "$( psql -tAc "SELECT to_regclass('public.domains')" )" ]; then
                 logger "database initialized, skipping"
               else
