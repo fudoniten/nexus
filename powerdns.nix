@@ -214,6 +214,7 @@ in {
               fi
               ${domainInitScripts}
             '';
+            RuntimeDirectory = "nexus-powerdns-initialize-db";
             LoadCredential = "db.passwd:${cfg.database.password-file}";
             DynamicUser = true;
           };
