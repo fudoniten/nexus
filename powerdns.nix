@@ -163,6 +163,7 @@ in {
           mkPgpassFile = pkgs.writeShellScript "genenrate-pgpass-file.sh" ''
             touch ${pgpassFile}
             chmod 700 ${pgpassFile}
+            ls -l $CREDENTIALS_DIRECTORY/db.passwd
             PASSWORD=$(cat $CREDENTIALS_DIRECTORY/db.passwd)
             echo "${db-cfg.host}:${
               toString db-cfg.port
