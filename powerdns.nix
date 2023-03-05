@@ -233,6 +233,7 @@ in {
               inherit (config.nexus.database) database;
               db-host = config.nexus.database.host;
               db-user = cfg.database.user;
+              db-password-file = "$CREDENTIALS_DIRECTORY/db.passwd";
             };
             ExecStart = concatStringsSep " " [
               "${pkgs.powerdns}/bin/pdns_server"
@@ -260,6 +261,7 @@ in {
             (concatStringsSep "\n"
               (map signDomain (attrNames config.nexus.domains)));
             RuntimeDirectory = "nexus-powerdns";
+            LoadCredentials = "db.passwd:${cfg.database.password-file}";
           };
         };
       };
