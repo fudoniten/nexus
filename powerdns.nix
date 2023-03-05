@@ -6,22 +6,50 @@ let
 
   db-cfg = config.nexus.database;
 
-  gpgsql-template = { host, database, user, enable-dnssec, debug ? false, ... }:
-    pkgs.writeText "pdns.gpgsql.conf.template" ''
-      launch+=gpgsql
-      gpgsql-host=${host}
-      gpgsql-dbname=${database}
-      gpgsql-user=${user}
-      gpgsql-password=__PASSWORD__
-      gpgsql-dnssec=${if enable-dnssec then "yes" else "no"}
-      gpgsql-extra-connection-parameters=sslmode=require
-      ${optionalString debug ''
-        log-dns-details
-        log-dns-queries
-        log-timestamp
-        loglevel=6
-        query-logging
-      ''}
+  genGpgsqlConfig = gpgsql-target:
+    { db-host, db-user, db-password-file, database, enable-dnssec, debug ? false
+    , ... }:
+    let
+      template = pkgs.writeText "pdns.gpgsql.conf.template" ''
+        launch+=gpgsql
+        gpgsql-host=${db-host}
+        gpgsql-dbname=${database}
+        gpgsql-user=${db-user}
+        gpgsql-password=__PASSWORD__
+        gpgsql-dnssec=${if enable-dnssec then "yes" else "no"}
+        gpgsql-extra-connection-parameters=sslmode=require
+        ${optionalString debug ''
+          log-dns-details
+          log-dns-queries
+          log-timestamp
+          loglevel=6
+          query-logging
+        ''}
+      '';
+    in pkgs.writeShellScript "gen-gpgsql-module.sh" ''
+      mkdir -p $(dirname ${gpgsql-target})
+      PASSWD=$(cat ${db-password-file})
+      sed 's/__PASSWORD__/$PASSWD/' ${template} > ${gpgsql-target}
+    '';
+
+  genPdnsConfig = { target-dir, listen-addresses, port, ... }@config:
+    let
+      target = "${target-dir}/pdns.conf";
+      gpgsql-target = "${target-dir}/modules/gpgsql.conf";
+      baseCfg = pkgs.writeText "pdns.conf.template" ''
+        local-address=${concatStringsSep ", " listen-addresses}
+        local-port=${toString port}
+        launch=
+      '';
+      moduleDirectory = "${target-dir}/modules";
+      genPgsqlConfScript =
+        gpgsqlTemplate "${moduleDirectory}/gpgsql.conf" config;
+    in pkgs.writeShellScript "gen-pdns-config.sh" ''
+      mkdir -p ${target-dir}
+      touch ${target-dir}/pdns.conf
+      cat ${baseCfg} > ${target-dir}/pdns.conf
+      echo "include-dir=${moduleDirectory}" >> ${target-dir}/pdns.conf
+      ${genGpgsqlConfScript}
     '';
 
   pdns-config = { listen-addrs, port, subconfig-dir, ... }:
@@ -48,9 +76,7 @@ let
   insertOrUpdate = domain: record:
     let
       selectClause = concatStringsSep " " [
-        "SELECT *"
-        "FROM domains, records"
-        "WHERE"
+        "SELECT * FROM domains, records WHERE"
         "records.name='${record.name}'"
         "AND"
         "records.type='${record.type}'"
@@ -60,8 +86,8 @@ let
         "domain.name='${domain}'"
       ];
       updateClause = concatStringsSep " " [
-        "UPDATE records"
-        "SET content='${record.content}'"
+        "UPDATE records SET"
+        "content='${record.content}'"
         "WHERE"
         "records.name='${record.name}'"
         "AND"
@@ -201,19 +227,13 @@ in {
           path = with pkgs; [ powerdns postgresql util-linux ];
           serviceConfig = let module-directory = "$RUNTIME_DIRECTORY/modules";
           in {
-            ExecStartPre = pkgs.writeShellScript "powerdns-init-config.sh"
-              (concatStringsSep "\n" [
-                ''MOD_DIR="${module-directory}"''
-                ''mkdir -p "${module-directory}"''
-                ''touch "${module-directory}/gpgsql.conf"''
-                ''chown "$USER" "${module-directory}"''
-                ''chmod 700 "${module-directory}"''
-                ''chown "$USER" "${module-directory}/gpgsql.conf"''
-                ''chmod 600 "${module-directory}/gpgsql.conf"''
-                "PASSWORD=$(cat $CREDENTIALS_DIRECTORY/db.passwd)"
-                ''
-                  sed -e "s/__PASSWORD__/$PASSWORD/" > "${module-directory}/gpgsql.conf"''
-              ]);
+            ExecStartPre = genPdnsConfig {
+              target-dir = "$RUNTIME_DIRECTORY";
+              inherit (cfg) port listen-addresses debug enable-dnssec;
+              inherit (config.nexus.database) database;
+              db-host = config.nexus.database.host;
+              db-user = cfg.database.user;
+            };
             ExecStart = concatStringsSep " " [
               "${pkgs.powerdns}/bin/pdns_server"
               "--daemon=no"

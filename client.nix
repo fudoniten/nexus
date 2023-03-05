@@ -21,7 +21,7 @@ in {
           serviceConfig = {
             DynamicUser = true;
             RuntimeDirectory = "nexus-client";
-            LoadCredentials = [ "hmac.key:${cfg.hmac-key-file}" ]
+            LoadCredential = [ "hmac.key:${cfg.hmac-key-file}" ]
               ++ (mapAttrsToList (filename: path: "${filename}:${path}")
                 sshKeys);
             ExecStartPre = let

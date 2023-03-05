@@ -39,7 +39,7 @@ in {
             "--listen-port=${toString cfg.port}"
           ]);
 
-        LoadCredentials = [
+        LoadCredential = [
           "db.passwd:${cfg.database.password-file}"
           "host-keys.json:${cfg.client-keys-file}"
         ];
