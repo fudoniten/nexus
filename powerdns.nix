@@ -190,7 +190,6 @@ in {
               pgWaitCmd =
                 "${pkgs.bash}/bin/bash -c 'until ${ncCmd}; do sleep 1; done;'";
             in pkgs.writeShellScript "powerdns-initialize-db-prep.sh" ''
-              ${mkPgpassFile}
               ${pgWaitCmd}
             '';
             ExecStart = let
@@ -204,6 +203,7 @@ in {
               domainInitScripts = concatStringsSep "\n"
                 (mapAttrsToList domainInitScript config.nexus.domains);
             in pkgs.writeShellScript "powerdns-initialize-db.sh" ''
+              ${mkPgpassFile}
               HOME=$RUNTIME_DIRECTORY
               if [ "$( psql -tAc "SELECT to_regclass('public.domains')" )" ]; then
                 logger "database initialized, skipping"
