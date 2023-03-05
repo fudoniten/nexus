@@ -60,17 +60,6 @@ let
       include-dir=${subconfig-dir}
     '';
 
-  make-pgpass-file = user: target-file:
-    pkgs.writeShellScript "genenrate-pgpass-file.sh" ''
-      touch ${target-file}
-      chown ${user} ${target-file}
-      chmod 700 ${target-file}
-      PASSWORD=$(cat ${cfg.database.password-file})
-      echo "${db-cfg.host}:${
-        toString db-cfg.port
-      }:${db-cfg.database}:${cfg.database.user}:__PASSWORD__" | sed "s/__PASSWORD__/$PASSWORD/" > ${target-file}
-    '';
-
   mkRecord = name: type: content: { inherit name type content; };
 
   insertOrUpdate = domain: record:
@@ -169,58 +158,66 @@ in {
 
     systemd = {
       services = {
-        nexus-powerdns-initialize-db =
-          let pgpass-file = "$RUNTIME_DIRECTORY/pgpass";
-          in {
-            description = "Initialize the powerdns database.";
-            requiredBy = [ "powerdns.service" ];
-            before = [ "powerdns.service" ];
-            requires = [ "powerdns-generate-pgpass.service" ];
-            after = [ "powerdns-generate-pgpass.service" ];
-            path = with pkgs; [ postgresql util-linux ];
-            environment = {
-              PGHOST = db-cfg.host;
-              PGDATABASE = db-cfg.database;
-              PGPORT = toString db-cfg.port;
-              PGUSER = cfg.database.user;
-              PGSSLMODE = "require";
-              PGPASSFILE = pgpass-file;
-            };
-            serviceConfig = {
-              ExecStartPre = let
-                initPgpass =
-                  make-pgpass-file "$USER" "$RUNTIME_DIRECTORY/pgpass";
-                ncCmd = "${pkgs.netcat}/bin/nc -z ${db-cfg.host} ${
-                    toString db-cfg.port
-                  }";
-                pgWaitCmd =
-                  "${pkgs.bash}/bin/bash -c 'until ${ncCmd}; do sleep 1; done;'";
-              in pkgs.writeShellScript "powerdns-initialize-db-prep.sh" ''
-                ${initPgpass}
-                ${pgWaitCmd}
-              '';
-              ExecStart = let
-                initDomainSqlFile = domainOpts:
-                  pkgs.writeText "init-${domainOpts.domain-name}.sql"
-                  (initializeDomainSql domainOpts);
-                domainInitScript = _: domainOpts:
-                  pkgs.writeShellScript "init-${domainOpts.domain-name}.sh" ''
-                    psql -f ${initDomainSqlFile domainOpts}
-                  '';
-                domainInitScripts = concatStringsSep "\n"
-                  (mapAttrsToList domainInitScript config.nexus.domains);
-              in pkgs.writeShellScript "powerdns-initialize-db.sh" ''
-                HOME=$RUNTIME_DIRECTORY
-                if [ "$( psql -tAc "SELECT to_regclass('public.domains')" )" ]; then
-                  logger "database initialized, skipping"
-                else
-                  logger "initializing powerdns database"
-                  psql -f ${pkgs.powerdns}/share/doc/pdns/schema.pgsql.sql
-                fi
-                ${domainInitScripts}
-              '';
-            };
+        nexus-powerdns-initialize-db = let
+          pgpassFile = "$RUNTIME_DIRECTORY/pgpass";
+          mkPgpassFile = pkgs.writeShellScript "genenrate-pgpass-file.sh" ''
+            touch ${pgpassFile}
+            chmod 700 ${target-file}
+            PASSWORD=$(cat $CREDENTIALS_DIRECTORY/db.passwd)
+            echo "${db-cfg.host}:${
+              toString db-cfg.port
+            }:${db-cfg.database}:${cfg.database.user}:__PASSWORD__" | sed "s/__PASSWORD__/$PASSWORD/" > ${pgpassFile}
+          '';
+        in {
+          description = "Initialize the powerdns database.";
+          requiredBy = [ "powerdns.service" ];
+          before = [ "powerdns.service" ];
+          requires = [ "powerdns-generate-pgpass.service" ];
+          after = [ "powerdns-generate-pgpass.service" ];
+          path = with pkgs; [ postgresql util-linux ];
+          environment = {
+            PGHOST = db-cfg.host;
+            PGDATABASE = db-cfg.database;
+            PGPORT = toString db-cfg.port;
+            PGUSER = cfg.database.user;
+            PGSSLMODE = "require";
+            PGPASSFILE = pgpass-file;
           };
+          serviceConfig = {
+            ExecStartPre = let
+              ncCmd = "${pkgs.netcat}/bin/nc -z ${db-cfg.host} ${
+                  toString db-cfg.port
+                }";
+              pgWaitCmd =
+                "${pkgs.bash}/bin/bash -c 'until ${ncCmd}; do sleep 1; done;'";
+            in pkgs.writeShellScript "powerdns-initialize-db-prep.sh" ''
+              ${mkPgpassFile}
+              ${pgWaitCmd}
+            '';
+            ExecStart = let
+              initDomainSqlFile = domainOpts:
+                pkgs.writeText "init-${domainOpts.domain-name}.sql"
+                (initializeDomainSql domainOpts);
+              domainInitScript = _: domainOpts:
+                pkgs.writeShellScript "init-${domainOpts.domain-name}.sh" ''
+                  psql -f ${initDomainSqlFile domainOpts}
+                '';
+              domainInitScripts = concatStringsSep "\n"
+                (mapAttrsToList domainInitScript config.nexus.domains);
+            in pkgs.writeShellScript "powerdns-initialize-db.sh" ''
+              HOME=$RUNTIME_DIRECTORY
+              if [ "$( psql -tAc "SELECT to_regclass('public.domains')" )" ]; then
+                logger "database initialized, skipping"
+              else
+                logger "initializing powerdns database"
+                psql -f ${pkgs.powerdns}/share/doc/pdns/schema.pgsql.sql
+              fi
+              ${domainInitScripts}
+            '';
+            LoadCredential = "db.passwd:${cfg.database.password-file}";
+            DynamicUser = true;
+          };
+        };
 
         nexus-powerdns = {
           description = "Nexus PowerDNS server.";
