@@ -197,7 +197,9 @@ in {
                 (initializeDomainSql domainOpts);
               domainInitScript = _: domainOpts:
                 pkgs.writeShellScript "init-${domainOpts.domain-name}.sh" ''
-                  psql -f ${initDomainSqlFile domainOpts}
+                  psql -U ${cfg.database.user} -f ${
+                    initDomainSqlFile domainOpts
+                  }
                 '';
               domainInitScripts = concatStringsSep "\n"
                 (mapAttrsToList domainInitScript config.nexus.domains);
@@ -208,9 +210,9 @@ in {
               ls -l $HOME/.pgpass
               if [ "$( psql -d -tAc "SELECT to_regclass('public.domains')" )" ]; then
                 logger "database initialized, skipping"
-              else
+              els
                 logger "initializing powerdns database"
-                psql -d -f ${pkgs.powerdns}/share/doc/pdns/schema.pgsql.sql
+                psql -d -U ${cfg.database.user} -f ${pkgs.powerdns}/share/doc/pdns/schema.pgsql.sql
               fi
               ${domainInitScripts}
             '';
