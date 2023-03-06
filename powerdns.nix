@@ -206,8 +206,14 @@ in {
             in pkgs.writeShellScript "powerdns-initialize-db.sh" ''
               ${mkPgpassFile}
               export HOME=$RUNTIME_DIRECTORY
-              ls -l ${pgpassFile}
-              ls -l $HOME/.pgpass
+
+              echo $PGHOST
+              echo $PGDATABASE
+              echo $PGPORT
+              echo $PGUSER
+              echo $PGSSLMODE
+              echo $PGPASSFILE
+
               if [ "$( psql --dbname=${db-cfg.database} -U ${cfg.database.user} -tAc "SELECT to_regclass('public.domains')" )" ]; then
                 logger "database initialized, skipping"
               els
