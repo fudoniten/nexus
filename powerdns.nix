@@ -139,12 +139,14 @@ let
           domain.aliases);
       records-clauses = map (insertOrUpdate domain-name) domain-records;
     in ''
+      DO $$
       BEGIN;
       INSERT INTO domains (name, master, type, notified_serial) SELECT '${domain-name}', '${primaryNameserver.ipv4-address}', 'MASTER', '${
         toString config.instance.build-timestamp
       }' WHERE NOT EXISTS (SELECT * FROM domains WHERE name='${domain-name}');
       ${concatStringsSep "\n" records-clauses}
       COMMIT;
+      $$
     '';
 
 in {
