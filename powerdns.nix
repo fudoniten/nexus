@@ -197,7 +197,7 @@ in {
                 (initializeDomainSql domainOpts);
               domainInitScript = _: domainOpts:
                 pkgs.writeShellScript "init-${domainOpts.domain-name}.sh" ''
-                  psql -U ${cfg.database.user} --database=${db-cfg.database} -f ${
+                  psql -U ${cfg.database.user} --db-name=${db-cfg.database} -f ${
                     initDomainSqlFile domainOpts
                   }
                 '';
@@ -208,11 +208,11 @@ in {
               export HOME=$RUNTIME_DIRECTORY
               ls -l ${pgpassFile}
               ls -l $HOME/.pgpass
-              if [ "$( psql --database=${db-cfg.database} -U ${cfg.database.user} -tAc "SELECT to_regclass('public.domains')" )" ]; then
+              if [ "$( psql --db-name=${db-cfg.database} -U ${cfg.database.user} -tAc "SELECT to_regclass('public.domains')" )" ]; then
                 logger "database initialized, skipping"
               els
                 logger "initializing powerdns database"
-                psql --database=${db-cfg.database} -U ${cfg.database.user} -f ${pkgs.powerdns}/share/doc/pdns/schema.pgsql.sql
+                psql --db-name=${db-cfg.database} -U ${cfg.database.user} -f ${pkgs.powerdns}/share/doc/pdns/schema.pgsql.sql
               fi
               ${domainInitScripts}
             '';
