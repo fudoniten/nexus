@@ -72,7 +72,7 @@ let
         "AND"
         "records.domain_id=domains.id"
         "AND"
-        "domain.name='${domain}'"
+        "domains.name='${domain}'"
       ];
       updateClause = concatStringsSep " " [
         "UPDATE records SET"
@@ -93,7 +93,7 @@ let
         "'${record.content}'"
         "FROM domains"
         "WHERE"
-        "domain.name='${domain}'"
+        "domains.name='${domain}'"
       ];
     in ''
       IF EXISTS (${selectClause}) THEN
