@@ -97,9 +97,9 @@ let
       ];
     in ''
       IF EXISTS (${selectClause}) THEN
-        ${updateClause}
+        ${updateClause};
       ELSE
-        ${insertClause}
+        ${insertClause};
       END IF;
     '';
 
