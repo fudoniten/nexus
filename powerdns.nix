@@ -209,7 +209,7 @@ in {
 
               if [ "$( psql --dbname=${db-cfg.database} -U ${cfg.database.user} -tAc "SELECT to_regclass('public.domains')" )" ]; then
                 echo "database initialized, skipping"
-              els
+              else
                 echo "initializing powerdns database"
                 psql --dbname=${db-cfg.database} -U ${cfg.database.user} -f ${pkgs.powerdns}/share/doc/pdns/schema.pgsql.sql
               fi
