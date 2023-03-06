@@ -205,6 +205,7 @@ in {
               ${mkPgpassFile}
               export HOME=$RUNTIME_DIRECTORY
               ls -l ${pgpassFile}
+              ls -l $HOME/.pgpass
               if [ "$( psql -tAc "SELECT to_regclass('public.domains')" )" ]; then
                 logger "database initialized, skipping"
               else
