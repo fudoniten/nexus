@@ -70,7 +70,7 @@ let
         "AND"
         "records.type='${record.type}'"
         "AND"
-        "records.domain_id=domain.id"
+        "records.domain_id=domains.id"
         "AND"
         "domain.name='${domain}'"
       ];
@@ -87,7 +87,7 @@ let
       insertClause = concatStringsSep " " [
         "INSERT INTO records (domain_id, name, type, content)"
         "SELECT"
-        "domain.id,"
+        "domains.id,"
         "'${record.name}',"
         "'${record.type}',"
         "'${record.content}'"
