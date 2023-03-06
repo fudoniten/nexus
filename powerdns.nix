@@ -179,7 +179,7 @@ in {
             PGPORT = toString db-cfg.port;
             PGUSER = cfg.database.user;
             PGSSLMODE = "require";
-            PGPASSFILE = "\$${pgpassFile}";
+            #PGPASSFILE = "${pgpassFile}";
           };
           serviceConfig = {
             ExecStartPre = let
@@ -206,6 +206,7 @@ in {
             in pkgs.writeShellScript "powerdns-initialize-db.sh" ''
               ${mkPgpassFile}
               export HOME=$RUNTIME_DIRECTORY
+              export PGPASSFILE=${pgpassFile}
 
               echo $PGHOST
               echo $PGDATABASE
