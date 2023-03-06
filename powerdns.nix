@@ -208,9 +208,9 @@ in {
               export PGPASSFILE=${pgpassFile}
 
               if [ "$( psql --dbname=${db-cfg.database} -U ${cfg.database.user} -tAc "SELECT to_regclass('public.domains')" )" ]; then
-                logger "database initialized, skipping"
+                echo "database initialized, skipping"
               els
-                logger "initializing powerdns database"
+                echo "initializing powerdns database"
                 psql --dbname=${db-cfg.database} -U ${cfg.database.user} -f ${pkgs.powerdns}/share/doc/pdns/schema.pgsql.sql
               fi
               ${domainInitScripts}
