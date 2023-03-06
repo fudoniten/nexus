@@ -82,7 +82,7 @@ let
         "AND"
         "records.type='${record.type}'"
         "AND"
-        "records.domain_id=(SELECT id FROM domain WHERE name='${domain}')"
+        "records.domain_id=(SELECT id FROM domains WHERE name='${domain}')"
       ];
       insertClause = concatStringsSep " " [
         "INSERT INTO records (domain_id, name, type, content)"
