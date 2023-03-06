@@ -96,7 +96,7 @@ let
         "domain.name='${domain}'"
       ];
     in ''
-      IF EXISTS (${selectClause});
+      IF EXISTS (${selectClause}) THEN
         ${updateClause}
       ELSE
         ${insertClause}
@@ -140,9 +140,9 @@ let
       records-clauses = map (insertOrUpdate domain-name) domain-records;
     in ''
       BEGIN;
-      INSERT INTO domains (name, master, type, notified_serial) VALUES ('${domain-name}', '${primaryNameserver.ipv4-address}', 'MASTER', '${
+      INSERT INTO domains (name, master, type, notified_serial) SELECT '${domain-name}', '${primaryNameserver.ipv4-address}', 'MASTER', '${
         toString config.instance.build-timestamp
-      }') WHERE NOT EXISTS (SELECT * FROM domains WHERE name='${domain-name}');
+      }' WHERE NOT EXISTS (SELECT * FROM domains WHERE name='${domain-name}');
       ${concatStringsSep "\n" records-clauses}
       COMMIT;
     '';
