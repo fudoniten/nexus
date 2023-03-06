@@ -179,7 +179,7 @@ in {
             PGPORT = toString db-cfg.port;
             PGUSER = cfg.database.user;
             PGSSLMODE = "require";
-            PGPASSFILE = "$${pgpassFile}";
+            PGPASSFILE = "\$${pgpassFile}";
           };
           serviceConfig = {
             ExecStartPre = let
