@@ -139,7 +139,6 @@ let
           domain.aliases);
       records-clauses = map (insertOrUpdate domain-name) domain-records;
     in ''
-      BEGIN;
       DO $$
       BEGIN
       INSERT INTO domains (name, master, type, notified_serial) SELECT '${domain-name}', '${primaryNameserver.ipv4-address}', 'MASTER', '${
@@ -148,7 +147,6 @@ let
       ${concatStringsSep "\n" records-clauses}
       END;
       $$
-      COMMIT;
     '';
 
 in {
