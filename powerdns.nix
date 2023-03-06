@@ -206,11 +206,11 @@ in {
               export HOME=$RUNTIME_DIRECTORY
               ls -l ${pgpassFile}
               ls -l $HOME/.pgpass
-              if [ "$( psql -tAc "SELECT to_regclass('public.domains')" )" ]; then
+              if [ "$( psql -d -tAc "SELECT to_regclass('public.domains')" )" ]; then
                 logger "database initialized, skipping"
               else
                 logger "initializing powerdns database"
-                psql -f ${pkgs.powerdns}/share/doc/pdns/schema.pgsql.sql
+                psql -d -f ${pkgs.powerdns}/share/doc/pdns/schema.pgsql.sql
               fi
               ${domainInitScripts}
             '';
