@@ -233,21 +233,26 @@ in {
           path = with pkgs; [ powerdns postgresql util-linux ];
           serviceConfig = let module-directory = "$RUNTIME_DIRECTORY/modules";
           in {
-            ExecStartPre = genPdnsConfig {
-              target-dir = "$RUNTIME_DIRECTORY";
-              inherit (cfg) port listen-addresses debug enable-dnssec;
-              inherit (config.nexus.database) database;
-              db-host = config.nexus.database.host;
-              db-user = cfg.database.user;
-              db-password-file = "$CREDENTIALS_DIRECTORY/db.passwd";
-            };
-            ExecStart = pkgs.writeShellScript "nexus-powerdns-start.sh"
-              (concatStringsSep " " [
+            ExecStart = let
+              genConfig = genPdnsConfig {
+                target-dir = "$RUNTIME_DIRECTORY";
+                inherit (cfg) port listen-addresses debug enable-dnssec;
+                inherit (config.nexus.database) database;
+                db-host = config.nexus.database.host;
+                db-user = cfg.database.user;
+                db-password-file = "$CREDENTIALS_DIRECTORY/db.passwd";
+              };
+              launchCmd = concatStringsSep " " [
                 "${pkgs.powerdns}/bin/pdns_server"
                 "--daemon=no"
                 "--guardian=yes"
                 ''--config-dir="$RUNTIME_DIRECTORY"''
-              ]);
+              ];
+            in pkgs.writeShellScript "nexus-powerdns-start.sh" ''
+              ${genConfig}
+              ${launchCmd}
+            '';
+
             ExecStartPost = let
               signDomain = domain: ''
                 cat $RUNTIME_DIRECTORY/pdns.conf
