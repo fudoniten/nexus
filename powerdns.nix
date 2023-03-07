@@ -249,19 +249,19 @@ in {
               ]);
             ExecStartPost = let
               signDomain = domain: ''
-                DNSINFO=$(${pkgs.powerdns}/bin/pdnsutil --config-dir=${module-directory} show-zone ${domain})
+                DNSINFO=$(${pkgs.powerdns}/bin/pdnsutil --config-dir=$RUNTIME_DIRECTORY show-zone ${domain})
                 if [[ "x$DNSINFO" =~ "xNo such zone in the database" ]]; then
                   logger "zone ${domain} does not exist in powerdns database"
                 elif [[ "x$DNSINFO" =~ "xZone is not actively secured" ]]; then
                   logger "securing zone ${domain} in powerdns database"
-                  ${pkgs.powerdns}/bin/pdnsutil --config-dir=${module-directory} secure-zone ${domain}
+                  ${pkgs.powerdns}/bin/pdnsutil --config-dir=$RUNTIME_DIRECTORY secure-zone ${domain}
                 elif [[ "x$DNSINFO" =~ "xNo keys for zone" ]]; then
                   logger "securing zone ${domain} in powerdns database"
-                  ${pkgs.powerdns}/bin/pdnsutil --config-dir=${module-directory} secure-zone ${domain}
+                  ${pkgs.powerdns}/bin/pdnsutil --config-dir=$RUNTIME_DIRECTORY secure-zone ${domain}
                 else
                   logger "not securing zone ${domain} in powerdns database"
                 fi
-                ${pkgs.powerdns}/bin/pdnsutil --config-dir=${module-directory} rectify-zone ${domain}
+                ${pkgs.powerdns}/bin/pdnsutil --config-dir=$RUNTIME_DIRECTORY rectify-zone ${domain}
               '';
             in pkgs.writeShellScript "nexus-powerdns-secure-zones.sh"
             (concatStringsSep "\n"
