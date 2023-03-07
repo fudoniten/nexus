@@ -96,11 +96,15 @@ let
         "domains.name='${domain}'"
       ];
     in ''
+      DO $$
+      BEGIN
       IF EXISTS (${selectClause}) THEN
         ${updateClause};
       ELSE
         ${insertClause};
       END IF;
+      END;
+      $$
     '';
 
   mapConcatAttrsToList = f: as: concatLists (mapAttrsToList f as);
@@ -139,14 +143,10 @@ let
           domain.aliases);
       records-clauses = map (insertOrUpdate domain-name) domain-records;
     in ''
-      DO $$
-      BEGIN
       INSERT INTO domains (name, master, type, notified_serial) SELECT '${domain-name}', '${primaryNameserver.ipv4-address}', 'MASTER', '${
         toString config.instance.build-timestamp
       }' WHERE NOT EXISTS (SELECT * FROM domains WHERE name='${domain-name}');
       ${concatStringsSep "\n" records-clauses}
-      END;
-      $$
     '';
 
 in {
