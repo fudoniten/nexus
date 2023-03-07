@@ -250,6 +250,8 @@ in {
               ]);
             ExecStartPost = let
               signDomain = domain: ''
+                cat $RUNTIME_DIRECTORY/pdns.conf
+                cat $RUNTIME_DIRECTORY/modules/gpgsql.conf
                 DNSINFO=$(${pkgs.powerdns}/bin/pdnsutil --config-dir=$RUNTIME_DIRECTORY show-zone ${domain})
                 if [[ "x$DNSINFO" =~ "xNo such zone in the database" ]]; then
                   logger "zone ${domain} does not exist in powerdns database"
