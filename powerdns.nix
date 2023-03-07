@@ -26,7 +26,7 @@ let
           query-logging
         ''}
       '';
-    in pkgs.writeShellScript "gen-gpgsql-module.sh" ''
+    in ''
       mkdir -p $(dirname ${gpgsql-target})
       PASSWD=$(cat ${db-password-file})
       sed "s/__PASSWORD__/$PASSWD/" ${template} > ${gpgsql-target}
@@ -277,7 +277,7 @@ in {
               (map signDomain (attrNames config.nexus.domains))}
             '';
             RuntimeDirectory = "nexus-powerdns";
-            LoadCredentials = "db.passwd:${cfg.database.password-file}";
+            LoadCredential = "db.passwd:${cfg.database.password-file}";
           };
         };
       };
