@@ -29,7 +29,7 @@ let
     in pkgs.writeShellScript "gen-gpgsql-module.sh" ''
       mkdir -p $(dirname ${gpgsql-target})
       PASSWD=$(cat ${db-password-file})
-      sed 's/__PASSWORD__/$PASSWD/' ${template} > ${gpgsql-target}
+      sed "s/__PASSWORD__/$PASSWD/" ${template} > ${gpgsql-target}
       cat ${gpgsql-target}
     '';
 
