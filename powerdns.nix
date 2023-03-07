@@ -266,9 +266,11 @@ in {
                 fi
                 ${pkgs.powerdns}/bin/pdnsutil --config-dir=$RUNTIME_DIRECTORY rectify-zone ${domain}
               '';
-            in pkgs.writeShellScript "nexus-powerdns-secure-zones.sh"
-            (concatStringsSep "\n"
-              (map signDomain (attrNames config.nexus.domains)));
+            in pkgs.writeShellScript "nexus-powerdns-secure-zones.sh" ''
+              export HOME=$RUNTIME_DIRECTORY
+              ${concatStringsSep "\n"
+              (map signDomain (attrNames config.nexus.domains))}
+            '';
             RuntimeDirectory = "nexus-powerdns";
             LoadCredentials = "db.passwd:${cfg.database.password-file}";
           };
