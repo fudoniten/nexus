@@ -431,11 +431,11 @@
         "utils": "utils_9"
       },
       "locked": {
-        "lastModified": 1678402064,
-        "narHash": "sha256-v3do5Yd9aXayPAGUtQ5MvqdpNykR79XV5HPU7anq0oc=",
+        "lastModified": 1678402657,
+        "narHash": "sha256-r7Eg5i6tNlXknUIpZtYVlsktT0iF/9EhvMdRg7Imkbc=",
         "ref": "refs/heads/master",
-        "rev": "f1651a0ee3cf7187b871da472d162991bbab0344",
-        "revCount": 22,
+        "rev": "f646b6523b4190f660791ccc68ea57c5dacb6ade",
+        "revCount": 23,
         "type": "git",
         "url": "https://git.fudo.org/fudo-public/nexus-server.git"
       },
