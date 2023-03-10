@@ -232,6 +232,11 @@ in {
           "Base hostname of this host. Must match key held by server.";
       };
 
+      servers = mkOption {
+        type = listOf str;
+        description = "List of servers to notify of changes.";
+      };
+
       ipv4 = mkOption {
         type = bool;
         description = "Report IPv4 address, if present.";
