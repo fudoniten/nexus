@@ -53,7 +53,7 @@ in {
         ProtectControlGroups = true;
         ProtectKernelTunables = true;
         ProtectKernelModules = true;
-        ProtectSystem = true;
+        # ProtectSystem = "full";
         ProtectHostname = true;
         ProtectHome = true;
         ProtectClock = true;
