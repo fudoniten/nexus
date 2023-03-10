@@ -14,13 +14,12 @@ in {
   config = mkIf cfg.enable {
     services.nginx = {
       enable = true;
-      virtualHosts."${cfg.hostname}" = {
+      virtualHosts = genAttrs cfg.hostnames (_: {
         enableACME = true;
         forceSSL = true;
 
-        locations."/".proxyPass =
-          "http://127.0.0.1:${toString cfg.internal-port}";
-      };
+        locations."/".proxyPass = "http://127.0.0.1:${cfg.internal-port}";
+      });
     };
 
     systemd.services.nexus-server = {
@@ -36,7 +35,7 @@ in {
             "--database-host=${db-cfg.host}"
             "--database-port=${toString db-cfg.port}"
             "--listen-host=127.0.0.1"
-            "--listen-port=${toString cfg.port}"
+            "--listen-port=${toString cfg.internal-port}"
           ]);
 
         LoadCredential = [

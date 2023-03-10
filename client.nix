@@ -32,7 +32,6 @@ in {
             ExecStart = pkgs.writeShellScript "nexus-client.sh"
               (concatStringsSep " " ([
                 "nexus-client"
-                "--server=${config.nexus.server.hostname}"
                 "--port=${toString config.nexus.server.port}"
                 "--delay-seconds=${toString cfg.delay-seconds}"
                 "--hostname=${cfg.hostname}"
@@ -41,7 +40,8 @@ in {
                 ++ (optional cfg.ipv4 "--ipv4") ++ (optional cfg.ipv6 "--ipv6")
                 ++ (optionals cfg.sshfps
                   (map (filename: "--sshfp=${filename}.sp")
-                    (attrNames sshKeys)))));
+                    (attrNames sshKeys)))
+                ++ (map (srv: "--server=${srv}") cfg.servers)));
           };
         };
       };
