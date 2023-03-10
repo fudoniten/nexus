@@ -197,9 +197,9 @@ in {
         default = 9812;
       };
 
-      hostname = mkOption {
-        type = str;
-        description = "Hostname on which to listen for incoming requests.";
+      hostnames = mkOption {
+        type = listOf str;
+        description = "Hostnames on which to listen for incoming requests.";
       };
 
       client-keys-file = mkOption {
