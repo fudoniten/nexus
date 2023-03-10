@@ -60,8 +60,8 @@ in {
         LockPersonality = true;
         RestrictRealtime = true;
         LimitNOFILE = "4096";
-        PermissionsStartOnly = true;
-        NoNewPrivileges = true;
+        # PermissionsStartOnly = true;
+        # NoNewPrivileges = true;
         AmbientCapabilities = [ "CAP_NET_BIND_SERVICE" ];
         SecureBits = "keep-caps";
 
