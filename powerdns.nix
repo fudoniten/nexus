@@ -136,7 +136,8 @@ let
         in ''"v=spf1 mx ${networks-string} -all"''))
       ] ++ (optional (domain.gssapi-realm != null)
         (mkRecord "_kerberos.${domain-name}" "TXT" "${domain.gssapi-realm}"))
-        ++ (mapAttrsToList (alias: target: mkRecord alias "CNAME" target)
+        ++ (mapAttrsToList
+          (alias: target: mkRecord "${alias}.${domain-name}" "CNAME" target)
           domain.aliases) ++ domain.records;
       records-clauses = map (insertOrUpdate domain-name) domain-records;
     in ''
