@@ -138,7 +138,7 @@ let
         (mkRecord "_kerberos.${domain-name}" "TXT" "${domain.gssapi-realm}"))
         ++ (mapAttrsToList
           (alias: target: mkRecord "${alias}.${domain-name}" "CNAME" target)
-          domain.aliases) ++ domain.records;
+          domain.aliases) ++ domain.records ++ ns-records;
       records-clauses = map (insertOrUpdate domain-name) domain-records;
     in ''
       DO $$
