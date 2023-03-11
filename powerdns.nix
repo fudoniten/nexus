@@ -111,7 +111,7 @@ let
       domain-name = domain.domain-name;
       ipv6-net = net: (builtins.match ":" net) != null;
       ipv4-net = net: !(ipv6-net net);
-      ns-records = mapConcat (nsOpts:
+      ns-records = concatMap (nsOpts:
         (optional (nsOpts.ipv4-address != null) mkRecord
           "${nsOpts.name}.${domain-name}" "A" nsOpts.ipv4-address)
         ++ (optional (nsOpts.ipv6-address != null) mkRecord
