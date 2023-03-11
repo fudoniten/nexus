@@ -198,12 +198,11 @@ in {
               initDomainSqlFile = domainOpts:
                 pkgs.writeText "init-${domainOpts.domain-name}.sql"
                 (initializeDomainSql domainOpts);
-              domainInitScript = _: domainOpts:
-                pkgs.writeShellScript "init-${domainOpts.domain-name}.sh" ''
-                  psql -U ${cfg.database.user} --dbname=${db-cfg.database} -f ${
-                    initDomainSqlFile domainOpts
-                  }
-                '';
+              domainInitScript = _: domainOpts: ''
+                psql -U ${cfg.database.user} --dbname=${db-cfg.database} -f ${
+                  initDomainSqlFile domainOpts
+                }
+              '';
               domainInitScripts = concatStringsSep "\n"
                 (mapAttrsToList domainInitScript config.nexus.domains);
             in pkgs.writeShellScript "powerdns-initialize-db.sh" ''
