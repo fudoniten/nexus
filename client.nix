@@ -18,6 +18,7 @@ in {
               config.services.openssh.hostKeys);
         in {
           path = [ nexus-client pkgs.openssh ];
+          wantedBy = [ "network-online.target" ];
           serviceConfig = {
             DynamicUser = true;
             RuntimeDirectory = "nexus-client";

@@ -25,6 +25,7 @@ in {
 
     systemd.services.nexus-server = {
       path = [ nexus-server ];
+      wantedBy = [ "network-online.target" ];
       serviceConfig = {
         ExecStart = pkgs.writeShellScript "nexus-server-start.sh"
           (concatStringsSep " " [
@@ -38,6 +39,12 @@ in {
             "--listen-host=127.0.0.1"
             "--listen-port=${toString cfg.internal-port}"
           ]);
+
+        ExecStartPre = let
+          ncCmd =
+            "${pkgs.netcat}/bin/nc -z ${db-cfg.host} ${toString db-cfg.port}";
+        in pkgs.writeShellScript "powerdns-initialize-db-prep.sh"
+        "${pkgs.bash}/bin/bash -c 'until ${ncCmd}; do sleep 1; done;'";
 
         LoadCredential = [
           "db.passwd:${cfg.database.password-file}"
