@@ -33,6 +33,7 @@ in {
             ExecStart = pkgs.writeShellScript "nexus-client.sh"
               (concatStringsSep " " ([
                 "nexus-client"
+                "--verbose"
                 "--port=${toString config.nexus.server.port}"
                 "--delay-seconds=${toString cfg.delay-seconds}"
                 "--hostname=${cfg.hostname}"
