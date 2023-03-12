@@ -391,11 +391,11 @@
         "utils": "utils_3"
       },
       "locked": {
-        "lastModified": 1678656459,
-        "narHash": "sha256-O6MweEPGcAeT1bXTqKeWBInhNV2SaZN0ZKaD1VRRCtU=",
+        "lastModified": 1678660194,
+        "narHash": "sha256-1RBxeWIur4CVjcccjCyD1GCkmqmKK/M1MbCU9F5ycVY=",
         "ref": "refs/heads/master",
-        "rev": "b0a8771dda1561433d76f6eb017ae8486614f8a2",
-        "revCount": 23,
+        "rev": "347d709e54c77874779125929484fb07ea759571",
+        "revCount": 24,
         "type": "git",
         "url": "https://git.fudo.org/fudo-public/nexus-client.git"
       },
