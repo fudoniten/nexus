@@ -38,12 +38,12 @@ in {
                 "--delay-seconds=${toString cfg.delay-seconds}"
                 "--hostname=${cfg.hostname}"
                 "--key-file=$CREDENTIALS_DIRECTORY/hmac.key"
-              ] ++ (map (dom: "--domain=${dom}") cfg.domains)
+              ] ++ (map (srv: "--server=${srv}") cfg.servers)
+                ++ (map (dom: "--domain=${dom}") cfg.domains)
                 ++ (optional cfg.ipv4 "--ipv4") ++ (optional cfg.ipv6 "--ipv6")
                 ++ (optionals cfg.sshfps
-                  (map (filename: "--sshfp=${filename}.sp")
-                    (attrNames sshKeys)))
-                ++ (map (srv: "--server=${srv}") cfg.servers)));
+                  (map (filename: "--sshfp=${filename}.fp")
+                    (attrNames sshKeys)))));
           };
         };
       };
