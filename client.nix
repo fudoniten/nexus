@@ -29,7 +29,7 @@ in {
               keygenScript = file:
                 "ssh-keygen -r PLACEHOLDER -f $CREDENTIAL_DIRECTORY/${file} | sed 's/PLACEHOLDER IN SSHFP '/ > ${sshfpFile}";
               keygenScripts =
-                concatStringsSep "\n" (map keygenScript (attrKeys sshKeyMap));
+                concatStringsSep "\n" (map keygenScript (attrNames sshKeyMap));
             in pkgs.writeShellScript "gen-sshfps.sh" ''
               [ -f ${sshfpFile} ] && rm ${sshfpFile}
               touch ${sshfpFile}
