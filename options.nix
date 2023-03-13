@@ -250,9 +250,9 @@ in {
       };
 
       sshfps = mkOption {
-        type = bool;
-        description = "Report SSH host key fingerprints.";
-        default = true;
+        type = listOf str;
+        description = "List of SSH key fingerprints for this host.";
+        default = [ ];
       };
 
       domains = mkOption {
