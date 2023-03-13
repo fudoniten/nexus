@@ -42,7 +42,7 @@ in {
                 ++ (map (dom: "--domain=${dom}") cfg.domains)
                 ++ (optional cfg.ipv4 "--ipv4") ++ (optional cfg.ipv6 "--ipv6")
                 ++ (optionals cfg.sshfps
-                  (map (filename: "--sshfp=${filename}.fp")
+                  (map (filename: "--sshfp=$CREDENTIALS_DIRECTORY/${filename}")
                     (attrNames sshKeys)))));
           };
         };
