@@ -9,7 +9,7 @@ let
   sshKeyMap = listToAttrs
     (map (path: nameValuePair (baseNameOf path) path) cfg.ssh-key-files);
   sshfpFile = "/run/nexus-client/sshpfs.txt";
-  hasSshfps = cfg.ssh-key-file != [ ];
+  hasSshfps = cfg.ssh-key-files != [ ];
 
 in {
   imports = [ ./options.nix ];
