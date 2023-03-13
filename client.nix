@@ -19,9 +19,7 @@ in {
           serviceConfig = {
             DynamicUser = true;
             RuntimeDirectory = "nexus-client";
-            LoadCredential = [ "hmac.key:${cfg.hmac-key-file}" ]
-              ++ (mapAttrsToList (filename: path: "${filename}:${path}")
-                sshKeys);
+            LoadCredential = [ "hmac.key:${cfg.hmac-key-file}" ];
             ExecStart = pkgs.writeShellScript "nexus-client.sh"
               (concatStringsSep " " ([
                 "nexus-client"
