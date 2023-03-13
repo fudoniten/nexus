@@ -9,16 +9,17 @@ let
   sshKeyMap = listToAttrs
     (map (path: nameValuePair (baseNameOf path) path) cfg.ssh-key-files);
   sshfpFile = "/run/nexus-client/sshpfs.txt";
+  hasSshfps = cfg.ssh-key-file != [ ];
 
 in {
   imports = [ ./options.nix ];
 
   config = mkIf cfg.enable {
     systemd = {
-      tmpfiles.rules = [ "d ${dirOf sshfpFile} 0700 - - 1d -" ];
+      tmpfiles.rules = optional hasSshfps "d ${dirOf sshfpFile} 0700 - - 1d -";
 
       services = {
-        nexus-client-sshpfs = {
+        nexus-client-sshpfs = mkIf hasSshfps {
           wantedBy = [ "nexus-client.service" ];
           path = with pkgs; [ openssh ];
           serviceConfig = {
@@ -44,8 +45,8 @@ in {
           serviceConfig = {
             DynamicUser = true;
             RuntimeDirectory = "nexus-client";
-            LoadCredential =
-              [ "hmac.key:${cfg.hmac-key-file}" "sshfp.txt:${sshfpFile}" ];
+            LoadCredential = [ "hmac.key:${cfg.hmac-key-file}" ]
+              ++ (optional hasSshfps "sshfp.txt:${sshfpFile}");
             ExecStart = pkgs.writeShellScript "nexus-client.sh"
               (concatStringsSep " " ([
                 "nexus-client"
@@ -57,8 +58,8 @@ in {
               ] ++ (map (srv: "--server=${srv}") cfg.servers)
                 ++ (map (dom: "--domain=${dom}") cfg.domains)
                 ++ (optional cfg.ipv4 "--ipv4") ++ (optional cfg.ipv6 "--ipv6")
-                ++ (map (sshfp: "--sshfps=$CREDENTIALS_DIRECTORY/sshfp.txt")
-                  cfg.sshfps)));
+                ++ (optional hasSshfps
+                  "--sshfps=$CREDENTIALS_DIRECTORY/sshfp.txt")));
           };
         };
       };
