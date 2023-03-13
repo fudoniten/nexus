@@ -6,7 +6,7 @@ with lib;
 let
   nexus-client = packages."${pkgs.system}".nexus-client;
   cfg = config.nexus.client;
-  sshKeyMap = attrsToList
+  sshKeyMap = listToAttrs
     (map (path: nameValuePair (baseNameOf path) path) cfg.ssh-key-files);
   sshfpFile = "/run/nexus-client/sshpfs.txt";
 
