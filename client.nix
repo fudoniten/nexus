@@ -22,13 +22,14 @@ in {
           wantedBy = [ "nexus-client.service" ];
           path = with pkgs; [ openssh ];
           serviceConfig = {
-            LoadCredential = mapAttrs (file: path: "${file}:${path}") sshKeyMap;
+            LoadCredential =
+              mapAttrsToList (file: path: "${file}:${path}") sshKeyMap;
             ReadWritePath = [ sshfpFile ];
             ExecStart = let
-              keygenScript = path:
-                "ssh-keygen -r PLACEHOLDER -f ${path} | sed 's/PLACEHOLDER IN SSHFP '/ > ${sshfpFile}";
+              keygenScript = file:
+                "ssh-keygen -r PLACEHOLDER -f $CREDENTIAL_DIRECTORY/${file} | sed 's/PLACEHOLDER IN SSHFP '/ > ${sshfpFile}";
               keygenScripts =
-                concatStringsSep "\n" (map keygenScript (attrValues sshKeyMap));
+                concatStringsSep "\n" (map keygenScript (attrKeys sshKeyMap));
             in pkgs.writeShellScript "gen-sshfps.sh" ''
               [ -f ${sshfpFile} ] && rm ${sshfpFile}
               touch ${sshfpFile}
