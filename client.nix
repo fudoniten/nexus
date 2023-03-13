@@ -31,7 +31,7 @@ in {
               ] ++ (map (srv: "--server=${srv}") cfg.servers)
                 ++ (map (dom: "--domain=${dom}") cfg.domains)
                 ++ (optional cfg.ipv4 "--ipv4") ++ (optional cfg.ipv6 "--ipv6")
-                ++ (map (sshfp: ''--sshfp="${sshfp}"'') cfg.sshpfs)));
+                ++ (map (sshfp: ''--sshfp="${sshfp}"'') cfg.sshfps)));
           };
         };
       };
