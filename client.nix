@@ -6,20 +6,45 @@ with lib;
 let
   nexus-client = packages."${pkgs.system}".nexus-client;
   cfg = config.nexus.client;
+  sshKeyMap = attrsToList
+    (map (path: nameValuePair (baseNameOf path) path) cfg.ssh-key-files);
+  sshfpFile = "/run/nexus-client/sshpfs.txt";
 
 in {
   imports = [ ./options.nix ];
 
   config = mkIf cfg.enable {
     systemd = {
+      tmpfiles.rules = [ "d ${dirOf sshfpFile} 0700 - - 1d -" ];
+
       services = {
+        nexus-client-sshpfs = {
+          wantedBy = [ "nexus-client.service" ];
+          path = with pkgs; [ openssh ];
+          serviceConfig = {
+            LoadCredential = mapAttrs (file: path: "${file}:${path}") sshKeyMap;
+            ReadWritePath = [ sshfpFile ];
+            ExecStart = let
+              keygenScript = path:
+                "ssh-keygen -r PLACEHOLDER -f ${path} | sed 's/PLACEHOLDER IN SSHFP '/ > ${sshfpFile}";
+              keygenScripts =
+                concatStringsSep "\n" (map keygenScript (attrValues sshKeyMap));
+            in pkgs.writeShellScript "gen-sshfps.sh" ''
+              [ -f ${sshfpFile} ] && rm ${sshfpFile}
+              touch ${sshfpFile}
+              ${keygenScripts}
+            '';
+          };
+        };
+
         nexus-client = {
-          path = [ nexus-client pkgs.openssh ];
+          path = [ nexus-client ];
           wantedBy = [ "network-online.target" ];
           serviceConfig = {
             DynamicUser = true;
             RuntimeDirectory = "nexus-client";
-            LoadCredential = [ "hmac.key:${cfg.hmac-key-file}" ];
+            LoadCredential =
+              [ "hmac.key:${cfg.hmac-key-file}" "sshfp.txt:${sshfpFile}" ];
             ExecStart = pkgs.writeShellScript "nexus-client.sh"
               (concatStringsSep " " ([
                 "nexus-client"
@@ -31,7 +56,8 @@ in {
               ] ++ (map (srv: "--server=${srv}") cfg.servers)
                 ++ (map (dom: "--domain=${dom}") cfg.domains)
                 ++ (optional cfg.ipv4 "--ipv4") ++ (optional cfg.ipv6 "--ipv6")
-                ++ (map (sshfp: ''--sshfp="${sshfp}"'') cfg.sshfps)));
+                ++ (map (sshfp: "--sshfps=$CREDENTIALS_DIRECTORY/sshfp.txt")
+                  cfg.sshfps)));
           };
         };
       };

@@ -249,9 +249,9 @@ in {
         default = true;
       };
 
-      sshfps = mkOption {
+      ssh-key-files = mkOption {
         type = listOf str;
-        description = "List of SSH key fingerprints for this host.";
+        description = "List of SSH key files to fingerprint for this host.";
         default = [ ];
       };
 
