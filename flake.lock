@@ -391,11 +391,11 @@
         "utils": "utils_3"
       },
       "locked": {
-        "lastModified": 1679002039,
-        "narHash": "sha256-QQ9KNjIR++pKfjlibyUnlKZiSMRZ8+779GHp6KsyrWc=",
+        "lastModified": 1679004408,
+        "narHash": "sha256-Pdz9s9uI1Dbbvn5BV/LVt6GmcC1rKBm6DLaXsNYKoeQ=",
         "ref": "refs/heads/master",
-        "rev": "ebebe3a3ae7e1949c7cfdbc96d19a97ac6fad5c8",
-        "revCount": 27,
+        "rev": "977ce76f6892637b52cf3230d22dd8e5030b03df",
+        "revCount": 28,
         "type": "git",
         "url": "https://git.fudo.org/fudo-public/nexus-client.git"
       },
@@ -605,11 +605,11 @@
     },
     "utils_3": {
       "locked": {
-        "lastModified": 1676283394,
-        "narHash": "sha256-XX2f9c3iySLCw54rJ/CZs+ZK6IQy7GXNY4nSOyu2QG4=",
+        "lastModified": 1678901627,
+        "narHash": "sha256-U02riOqrKKzwjsxc/400XnElV+UtPUQWpANPlyazjH0=",
         "owner": "numtide",
         "repo": "flake-utils",
-        "rev": "3db36a8b464d0c4532ba1c7dda728f4576d6d073",
+        "rev": "93a2b84fc4b70d9e089d029deacc3583435c2ed6",
         "type": "github"
       },
       "original": {
