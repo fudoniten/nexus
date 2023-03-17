@@ -28,7 +28,7 @@ in {
             ReadWritePath = [ sshfpFile ];
             ExecStart = let
               keygenScript = file:
-                "ssh-keygen -r PLACEHOLDER -f $CREDENTIAL_DIRECTORY/${file} | sed 's/PLACEHOLDER IN SSHFP '/ > ${sshfpFile}";
+                "ssh-keygen -r PLACEHOLDER -f $CREDENTIALS_DIRECTORY/${file} | sed 's/PLACEHOLDER IN SSHFP //' > ${sshfpFile}";
               keygenScripts =
                 concatStringsSep "\n" (map keygenScript (attrNames sshKeyMap));
             in pkgs.writeShellScript "gen-sshfps.sh" ''
