@@ -57,8 +57,9 @@ in {
                 "--key-file=$CREDENTIALS_DIRECTORY/hmac.key"
               ] ++ (map (srv: "--server=${srv}") cfg.servers)
                 ++ (map (dom: "--domain=${dom}") cfg.domains)
-                ++ (optional cfg.ipv4 "--ipv4") ++ (optional cfg.ipv6 "--ipv6")
-                ++ (optional hasSshfps
+                ++ (map (ca: "--certificate-authority=${ca}")
+                  cfg.certificate-authorities) ++ (optional cfg.ipv4 "--ipv4")
+                ++ (optional cfg.ipv6 "--ipv6") ++ (optional hasSshfps
                   "--sshfps=$CREDENTIALS_DIRECTORY/sshfp.txt")));
           };
         };

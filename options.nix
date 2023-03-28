@@ -237,6 +237,12 @@ in {
         description = "List of servers to notify of changes.";
       };
 
+      certificate-authorities = mkOption {
+        type = listOf path;
+        description = "List of CA certificates trusted by the client.";
+        default = [ ];
+      };
+
       ipv4 = mkOption {
         type = bool;
         description = "Report IPv4 address, if present.";
