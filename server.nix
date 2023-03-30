@@ -28,7 +28,7 @@ in {
       wantedBy = [ "network-online.target" ];
       serviceConfig = {
         ExecStart = pkgs.writeShellScript "nexus-server-start.sh"
-          (concatStringsSep " " [
+          (concatStringsSep " " ([
             "nexus-server"
             "--host-keys=$CREDENTIALS_DIRECTORY/host-keys.json"
             "--database=${db-cfg.database}"
@@ -38,7 +38,7 @@ in {
             "--database-port=${toString db-cfg.port}"
             "--listen-host=127.0.0.1"
             "--listen-port=${toString cfg.internal-port}"
-          ]);
+          ] ++ (optional cfg.verbose "--verbose")));
 
         ExecStartPre = let
           ncCmd =

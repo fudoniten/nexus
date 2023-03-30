@@ -179,6 +179,12 @@ in {
     server = {
       enable = mkEnableOption "Enable Fudo Nexus server.";
 
+      verbose = mkOption {
+        type = bool;
+        description = "Enable verbose logging.";
+        defalut = false;
+      };
+
       host-keys = mkOption {
         type = attrsOf str;
         description = "Map of hostname to host HMAC key.";
@@ -225,6 +231,12 @@ in {
 
     client = {
       enable = mkEnableOption "Enable Nexus DDNS client.";
+
+      verbose = mkOption {
+        type = bool;
+        description = "Enable verbose logging.";
+        defalut = false;
+      };
 
       hostname = mkOption {
         type = str;
