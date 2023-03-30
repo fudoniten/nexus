@@ -20,7 +20,7 @@ in {
 
       services = {
         nexus-client-sshpfs = mkIf hasSshfps {
-          wantedBy = [ "nexus-client.service" ];
+          requiredBy = [ "nexus-client.service" ];
           path = with pkgs; [ openssh ];
           serviceConfig = {
             LoadCredential =
