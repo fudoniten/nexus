@@ -9,7 +9,7 @@ let
   sshKeyMap = listToAttrs
     (map (path: nameValuePair (baseNameOf path) path) cfg.ssh-key-files);
   sshfpFile = "/run/nexus-client/sshpfs.txt";
-  hasSshfps = cfg.ssh-key-files != [ ];
+  hasSshfps = (trace cfg.ssh-key-files cfg.ssh-key-files) != [ ];
 
 in {
   imports = [ ./options.nix ];
@@ -19,25 +19,26 @@ in {
       tmpfiles.rules = optional hasSshfps "d ${dirOf sshfpFile} 0700 - - 1d -";
 
       services = {
-        nexus-client-sshpfs = mkIf hasSshfps {
-          requiredBy = [ "nexus-client.service" ];
-          path = with pkgs; [ openssh ];
-          serviceConfig = {
-            LoadCredential =
-              mapAttrsToList (file: path: "${file}:${path}") sshKeyMap;
-            ReadWritePath = [ sshfpFile ];
-            ExecStart = let
-              keygenScript = file:
-                "ssh-keygen -r PLACEHOLDER -f $CREDENTIALS_DIRECTORY/${file} | sed 's/PLACEHOLDER IN SSHFP //' > ${sshfpFile}";
-              keygenScripts =
-                concatStringsSep "\n" (map keygenScript (attrNames sshKeyMap));
-            in pkgs.writeShellScript "gen-sshfps.sh" ''
-              [ -f ${sshfpFile} ] && rm ${sshfpFile}
-              touch ${sshfpFile}
-              ${keygenScripts}
-            '';
+        nexus-client-sshpfs =
+          mkIf (trace "${config.instance.hostname}: ${hasSshfps}" hasSshfps) {
+            requiredBy = [ "nexus-client.service" ];
+            path = with pkgs; [ openssh ];
+            serviceConfig = {
+              LoadCredential =
+                mapAttrsToList (file: path: "${file}:${path}") sshKeyMap;
+              ReadWritePath = [ sshfpFile ];
+              ExecStart = let
+                keygenScript = file:
+                  "ssh-keygen -r PLACEHOLDER -f $CREDENTIALS_DIRECTORY/${file} | sed 's/PLACEHOLDER IN SSHFP //' > ${sshfpFile}";
+                keygenScripts = concatStringsSep "\n"
+                  (map keygenScript (attrNames sshKeyMap));
+              in pkgs.writeShellScript "gen-sshfps.sh" ''
+                [ -f ${sshfpFile} ] && rm ${sshfpFile}
+                touch ${sshfpFile}
+                ${keygenScripts}
+              '';
+            };
           };
-        };
 
         nexus-client = {
           path = [ nexus-client ];
