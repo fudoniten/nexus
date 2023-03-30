@@ -182,7 +182,7 @@ in {
       verbose = mkOption {
         type = bool;
         description = "Enable verbose logging.";
-        defalut = false;
+        default = false;
       };
 
       host-keys = mkOption {
@@ -235,7 +235,7 @@ in {
       verbose = mkOption {
         type = bool;
         description = "Enable verbose logging.";
-        defalut = false;
+        default = false;
       };
 
       hostname = mkOption {
