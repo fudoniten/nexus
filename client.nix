@@ -61,8 +61,8 @@ in {
                 ++ (map (ca: "--certificate-authority=${ca}")
                   cfg.certificate-authorities) ++ (optional cfg.ipv4 "--ipv4")
                 ++ (optional cfg.ipv6 "--ipv6") ++ (optional hasSshfps
-                  "--sshfps=$CREDENTIALS_DIRECTORY/sshfp.txt"))
-                ++ (optional cfg.verbose "--verbose"));
+                  "--sshfps=$CREDENTIALS_DIRECTORY/sshfp.txt")
+                ++ (optional cfg.verbose "--verbose")));
           };
         };
       };
