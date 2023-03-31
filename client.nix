@@ -30,7 +30,6 @@ in {
             Type = "oneshot";
             LoadCredential =
               mapAttrsToList (file: path: "${file}:${path}") sshKeyMap;
-            ReadWritePaths = [ sshfpFile ];
             ExecStart = let
               keygenScript = file:
                 "ssh-keygen -r PLACEHOLDER -f $CREDENTIALS_DIRECTORY/${file} | sed 's/PLACEHOLDER IN SSHFP //' > ${sshfpFile}";
