@@ -26,6 +26,7 @@ in {
               before = [ "nexus-client.service" ];
               path = with pkgs; [ openssh ];
               serviceConfig = {
+                Type = "oneshot";
                 LoadCredential =
                   mapAttrsToList (file: path: "${file}:${path}") sshKeyMap;
                 ReadWritePath = [ sshfpFile ];
