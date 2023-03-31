@@ -44,7 +44,7 @@ in {
 
         nexus-client = {
           path = [ nexus-client ];
-          wantedBy = [ "default.target" ];
+          wantedBy = [ "multi-user.target" ];
           after = [ "network-online.target" ];
           serviceConfig = {
             DynamicUser = true;
