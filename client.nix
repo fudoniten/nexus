@@ -19,7 +19,7 @@ in {
   config = mkIf cfg.enable {
     systemd = {
       tmpfiles.rules = pthru config.instance.hostname
-        (optional hasSshfps "d ${dirOf sshfpFile} 0700 - - 1d -");
+        (optional hasSshfps "d ${dirOf sshfpFile} 0700 - - - -");
 
       services = {
         nexus-client-sshpfs = mkIf hasSshfps {
