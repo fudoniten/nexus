@@ -11,15 +11,12 @@ let
   sshfpFile = "/run/nexus-client/sshpfs.txt";
   hasSshfps = (lib.length cfg.ssh-key-files) > 0;
 
-  pthru = msg: o: trace "${msg}: ${toString o}" o;
-
 in {
   imports = [ ./options.nix ];
 
   config = mkIf cfg.enable {
     systemd = {
-      tmpfiles.rules = pthru config.instance.hostname
-        (optional hasSshfps "d ${dirOf sshfpFile} 0700 - - - -");
+      tmpfiles.rules = optional hasSshfps "d ${dirOf sshfpFile} 0700 - - - -";
 
       services = {
         nexus-client-sshpfs = mkIf hasSshfps {
