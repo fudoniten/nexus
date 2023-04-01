@@ -28,17 +28,17 @@ in {
           path = with pkgs; [ openssh ];
           serviceConfig = {
             Type = "oneshot";
+            CacheDirectory = "nexus-client-sshfp";
             LoadCredential =
               mapAttrsToList (file: path: "${file}:${path}") sshKeyMap;
             ExecStart = let
               keygenScript = file:
-                "ssh-keygen -r PLACEHOLDER -f $CREDENTIALS_DIRECTORY/${file} | sed 's/PLACEHOLDER IN SSHFP //' > ${sshfpFile}";
+                "ssh-keygen -r PLACEHOLDER -f $CREDENTIALS_DIRECTORY/${file} | sed 's/PLACEHOLDER IN SSHFP //' > $CACHE_DIRECTORY/sshfps.txt";
               keygenScripts =
                 concatStringsSep "\n" (map keygenScript (attrNames sshKeyMap));
             in pkgs.writeShellScript "gen-sshfps.sh" ''
-              [ -f ${sshfpFile} ] && rm ${sshfpFile}
-              touch ${sshfpFile}
               ${keygenScripts}
+              mv $CACHE_DIRECTORY/sshfps.txt ${sshfpFile}
             '';
           };
         };
