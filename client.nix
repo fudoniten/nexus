@@ -41,11 +41,11 @@ in {
         };
 
         nexus-client = {
-          path = [ nexus-client ];
           wantedBy = [ "multi-user.target" ];
           after = [ "network-online.target" ];
           serviceConfig = {
             DynamicUser = true;
+            Restart = "always";
             RuntimeDirectory = "nexus-client";
             LoadCredential = [ "hmac.key:${cfg.hmac-key-file}" ]
               ++ (optional hasSshfps "sshfp.txt:${sshfpFile}");
