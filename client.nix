@@ -4,11 +4,11 @@ packages:
 
 with lib;
 let
+  hostname = config.instance.hostname;
   nexus-client = packages."${pkgs.system}".nexus-client;
   cfg = config.nexus.client;
   sshKeyMap = listToAttrs
     (map (path: nameValuePair (baseNameOf path) path) cfg.ssh-key-files);
-  sshfpFile = "/run/nexus-client/sshpfs.txt";
   hasSshfps = (lib.length cfg.ssh-key-files) > 0;
 
 in {
@@ -16,39 +16,27 @@ in {
 
   config = mkIf cfg.enable {
     systemd = {
-      tmpfiles.rules = optional hasSshfps "d ${dirOf sshfpFile} 0700 - - - -";
-
       services = {
-        nexus-client-sshpfs = mkIf hasSshfps {
-          requiredBy = [ "nexus-client.service" ];
-          before = [ "nexus-client.service" ];
-          path = with pkgs; [ openssh ];
-          serviceConfig = {
-            Type = "oneshot";
-            CacheDirectory = "nexus-client-sshfp";
-            LoadCredential =
-              mapAttrsToList (file: path: "${file}:${path}") sshKeyMap;
-            ExecStart = let
-              keygenScript = file:
-                "ssh-keygen -r PLACEHOLDER -f $CREDENTIALS_DIRECTORY/${file} | sed 's/PLACEHOLDER IN SSHFP //' > $CACHE_DIRECTORY/sshfps.txt";
-              keygenScripts =
-                concatStringsSep "\n" (map keygenScript (attrNames sshKeyMap));
-            in pkgs.writeShellScript "gen-sshfps.sh" ''
-              ${keygenScripts}
-              mv $CACHE_DIRECTORY/sshfps.txt ${sshfpFile}
-            '';
-          };
-        };
-
         nexus-client = {
           wantedBy = [ "multi-user.target" ];
           after = [ "network-online.target" ];
+          path = [ nexus-client ] ++ (with pkgs; [ openssh ]);
           serviceConfig = {
             DynamicUser = true;
             Restart = "always";
             RuntimeDirectory = "nexus-client";
+            CacheDirectory = optionalString hasSshfps "nexus-client";
             LoadCredential = [ "hmac.key:${cfg.hmac-key-file}" ]
-              ++ (optional hasSshfps "sshfp.txt:${sshfpFile}");
+              ++ (mapAttrsToList (file: path: "${file}:${path}") sshKeyMap);
+            ExecStartPre = mkIf hasSshpfs (let
+              keygenScript = file:
+                "ssh-keygen -r PLACEHOLDER -f $CREDENTIALS_DIRECTORY/${file} | sed 's/PLACEHOLDER IN SSHFP //' > $CACHE_DIRECTORY/sshfps.txt";
+              keygenScripts =
+                concatStringsSep "\n" (map keygenScript (attrNames sshKeyMap));
+            in pkgs.writeShellScript "nexus-client-gen-sshfps.sh" ''
+              ${keygenScripts}
+              mv $CACHE_DIRECTORY/sshfps.txt $RUNTIME_DIRECTORY/${hostname}-sshfps.txt
+            '');
             ExecStart = pkgs.writeShellScript "nexus-client.sh"
               (concatStringsSep " " ([
                 "nexus-client"
@@ -61,7 +49,7 @@ in {
                 ++ (map (ca: "--certificate-authority=${ca}")
                   cfg.certificate-authorities) ++ (optional cfg.ipv4 "--ipv4")
                 ++ (optional cfg.ipv6 "--ipv6") ++ (optional hasSshfps
-                  "--sshfps=$CREDENTIALS_DIRECTORY/sshfp.txt")
+                  "--sshfps=$RUNTIME_DIRECTORY/${hostname}-sshfp.txt")
                 ++ (optional cfg.verbose "--verbose")));
           };
         };
