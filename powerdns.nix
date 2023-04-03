@@ -261,15 +261,20 @@ in {
                 cat $RUNTIME_DIRECTORY/pdns.conf
                 cat $RUNTIME_DIRECTORY/modules/gpgsql.conf
                 DNSINFO=$(${pkgs.powerdns}/bin/pdnsutil --config-dir=$RUNTIME_DIRECTORY show-zone ${domain})
+                echo "DNS INFO: $DNSINFO"
                 if [[ "x$DNSINFO" =~ "xNo such zone in the database" ]]; then
+                  echo "zone ${domain} does not exist in powerdns database"
                   logger "zone ${domain} does not exist in powerdns database"
                 elif [[ "x$DNSINFO" =~ "xZone is not actively secured" ]]; then
+                  echo "securing zone ${domain} in powerdns database"
                   logger "securing zone ${domain} in powerdns database"
                   ${pkgs.powerdns}/bin/pdnsutil --config-dir=$RUNTIME_DIRECTORY secure-zone ${domain}
                 elif [[ "x$DNSINFO" =~ "xNo keys for zone" ]]; then
+                  echo "securing zone ${domain} in powerdns database"
                   logger "securing zone ${domain} in powerdns database"
                   ${pkgs.powerdns}/bin/pdnsutil --config-dir=$RUNTIME_DIRECTORY secure-zone ${domain}
                 else
+                  echo "not securing zone ${domain} in powerdns database"
                   logger "not securing zone ${domain} in powerdns database"
                 fi
                 ${pkgs.powerdns}/bin/pdnsutil --config-dir=$RUNTIME_DIRECTORY rectify-zone ${domain}
