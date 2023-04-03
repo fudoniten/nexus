@@ -242,7 +242,7 @@ in {
                 db-user = cfg.database.user;
                 db-password-file = "$CREDENTIALS_DIRECTORY/db.passwd";
               };
-              launchCmd = concatStringsSep " " [
+              launchCmd = concatStringsSep " " ([
                 "${pkgs.powerdns}/bin/pdns_server"
                 "--daemon=no"
                 "--guardian=yes"
@@ -250,7 +250,7 @@ in {
               ] ++ (optionals cfg.debug [
                 "--log-dns-queries=yes"
                 "--loglevel=7"
-              ]);
+              ]));
             in pkgs.writeShellScript "nexus-powerdns-start.sh" ''
               ${genConfig}
               ${launchCmd}
