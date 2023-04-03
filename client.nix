@@ -28,7 +28,7 @@ in {
             CacheDirectory = optionalString hasSshfps "nexus-client";
             LoadCredential = [ "hmac.key:${cfg.hmac-key-file}" ]
               ++ (mapAttrsToList (file: path: "${file}:${path}") sshKeyMap);
-            ExecStartPre = mkIf hasSshpfs (let
+            ExecStartPre = mkIf hasSshfps (let
               keygenScript = file:
                 "ssh-keygen -r PLACEHOLDER -f $CREDENTIALS_DIRECTORY/${file} | sed 's/PLACEHOLDER IN SSHFP //' > $CACHE_DIRECTORY/sshfps.txt";
               keygenScripts =
