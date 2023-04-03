@@ -23,9 +23,9 @@ in {
               "ssh-keygen -r PLACEHOLDER -f $CREDENTIALS_DIRECTORY/${file} | sed 's/PLACEHOLDER IN SSHFP //' > $CACHE_DIRECTORY/sshfps.txt";
             keygenScripts =
               concatStringsSep "\n" (map keygenScript (attrNames sshKeyMap));
-          in pkgs.writeShellScript "nexus-client-gen-sshfps.sh" ''
+          in ''
             ${keygenScripts}
-            mv $CACHE_DIRECTORY/sshfps.txt $RUNTIME_DIRECTORY/${hostname}-sshfps.txt
+            mv -v $CACHE_DIRECTORY/sshfps.txt $RUNTIME_DIRECTORY/${hostname}-sshfps.txt
           '';
         in {
           wantedBy = [ "multi-user.target" ];
@@ -50,7 +50,7 @@ in {
                 ++ (map (ca: "--certificate-authority=${ca}")
                   cfg.certificate-authorities) ++ (optional cfg.ipv4 "--ipv4")
                 ++ (optional cfg.ipv6 "--ipv6") ++ (optional hasSshfps
-                  "--sshfps=$RUNTIME_DIRECTORY/${hostname}-sshfp.txt")
+                  "--sshfps=$RUNTIME_DIRECTORY/${hostname}-sshfps.txt")
                 ++ (optional cfg.verbose "--verbose"));
             in pkgs.writeShellScript "nexus-client.sh" ''
               ${optionalString hasSshfps genSshfps}
