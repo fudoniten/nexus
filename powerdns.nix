@@ -246,10 +246,11 @@ in {
                 "${pkgs.powerdns}/bin/pdns_server"
                 "--daemon=no"
                 "--guardian=yes"
+                ''--config-dir="$RUNTIME_DIRECTORY"''
+              ] ++ (optionals cfg.debug [
                 "--log-dns-queries=yes"
                 "--loglevel=7"
-                ''--config-dir="$RUNTIME_DIRECTORY"''
-              ];
+              ]);
             in pkgs.writeShellScript "nexus-powerdns-start.sh" ''
               ${genConfig}
               ${launchCmd}
