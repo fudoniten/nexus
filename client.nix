@@ -17,7 +17,17 @@ in {
   config = mkIf cfg.enable {
     systemd = {
       services = {
-        nexus-client = {
+        nexus-client = let
+          genSshfps = let
+            keygenScript = file:
+              "ssh-keygen -r PLACEHOLDER -f $CREDENTIALS_DIRECTORY/${file} | sed 's/PLACEHOLDER IN SSHFP //' > $CACHE_DIRECTORY/sshfps.txt";
+            keygenScripts =
+              concatStringsSep "\n" (map keygenScript (attrNames sshKeyMap));
+          in pkgs.writeShellScript "nexus-client-gen-sshfps.sh" ''
+            ${keygenScripts}
+            mv $CACHE_DIRECTORY/sshfps.txt $RUNTIME_DIRECTORY/${hostname}-sshfps.txt
+          '';
+        in {
           wantedBy = [ "multi-user.target" ];
           after = [ "network-online.target" ];
           path = [ nexus-client ] ++ (with pkgs; [ openssh ]);
@@ -28,17 +38,8 @@ in {
             CacheDirectory = optionalString hasSshfps "nexus-client";
             LoadCredential = [ "hmac.key:${cfg.hmac-key-file}" ]
               ++ (mapAttrsToList (file: path: "${file}:${path}") sshKeyMap);
-            ExecStartPre = mkIf hasSshfps (let
-              keygenScript = file:
-                "ssh-keygen -r PLACEHOLDER -f $CREDENTIALS_DIRECTORY/${file} | sed 's/PLACEHOLDER IN SSHFP //' > $CACHE_DIRECTORY/sshfps.txt";
-              keygenScripts =
-                concatStringsSep "\n" (map keygenScript (attrNames sshKeyMap));
-            in pkgs.writeShellScript "nexus-client-gen-sshfps.sh" ''
-              ${keygenScripts}
-              mv $CACHE_DIRECTORY/sshfps.txt $RUNTIME_DIRECTORY/${hostname}-sshfps.txt
-            '');
-            ExecStart = pkgs.writeShellScript "nexus-client.sh"
-              (concatStringsSep " " ([
+            ExecStart = let
+              execScript = concatStringsSep " " ([
                 "nexus-client"
                 "--port=${toString config.nexus.server.port}"
                 "--delay-seconds=${toString cfg.delay-seconds}"
@@ -50,7 +51,11 @@ in {
                   cfg.certificate-authorities) ++ (optional cfg.ipv4 "--ipv4")
                 ++ (optional cfg.ipv6 "--ipv6") ++ (optional hasSshfps
                   "--sshfps=$RUNTIME_DIRECTORY/${hostname}-sshfp.txt")
-                ++ (optional cfg.verbose "--verbose")));
+                ++ (optional cfg.verbose "--verbose"));
+            in pkgs.writeShellScript "nexus-client.sh" ''
+              ${optionalString hasSshfps genSshfps}
+              ${execScript}
+            '';
           };
         };
       };
