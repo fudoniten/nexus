@@ -191,6 +191,8 @@ in {
                 }";
               pgWaitCmd =
                 "${pkgs.bash}/bin/bash -c 'until ${ncCmd}; do sleep 1; done;'";
+              waitForSecret =
+                "${pkgs.bash}/bin/bash -c 'until [ -d ${cfg.database.password-file} ]; do sleep 1; done;'";
             in pkgs.writeShellScript "powerdns-initialize-db-prep.sh" ''
               ${pgWaitCmd}
             '';
