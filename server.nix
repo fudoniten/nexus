@@ -70,10 +70,12 @@ in {
         # PermissionsStartOnly = true;
         # NoNewPrivileges = true;
         AmbientCapabilities = [ "CAP_NET_BIND_SERVICE" ];
+        TimeoutStartSec = "180";
         SecureBits = "keep-caps";
-
         Restart = "always";
       };
+      unitConfig.ConditionPathExists =
+        [ cfg.database.password-file cfg.client-keys-file ];
     };
   };
 }
