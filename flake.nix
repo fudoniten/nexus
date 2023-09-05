@@ -2,10 +2,19 @@
   description = "Nexus Server & Client";
 
   inputs = {
-    nixpkgs.url = "nixpkgs/nixos-22.05";
-    nexus-client.url = "git+https://git.fudo.org/fudo-public/nexus-client.git";
-    nexus-crypto.url = "git+https://git.fudo.org/fudo-public/nexus-crypto.git";
-    nexus-server.url = "git+https://git.fudo.org/fudo-public/nexus-server.git";
+    nixpkgs.url = "nixpkgs/nixos-23.05";
+    nexus-client = {
+      url = "git+https://git.fudo.org/fudo-public/nexus-client.git";
+      inputs.nixpkgs.follows = "nixpkgs";
+    };
+    nexus-crypto = {
+      url = "git+https://git.fudo.org/fudo-public/nexus-crypto.git";
+      inputs.nixpkgs.follows = "nixpkgs";
+    };
+    nexus-server = {
+      url = "git+https://git.fudo.org/fudo-public/nexus-server.git";
+      inputs.nixpkgs.follows = "nixpkgs";
+    };
     utils.url = "github:numtide/flake-utils";
   };
 
