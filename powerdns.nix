@@ -164,7 +164,7 @@ in {
       services = {
         nexus-powerdns-initialize-db = let
           pgpassFile = "$RUNTIME_DIRECTORY/.pgpass";
-          mkPgpassFile = pkgs.writeShellScript "genenrate-pgpass-file.sh" ''
+          mkPgpassFile = pkgs.writeShellScript "generate-pgpass-file.sh" ''
             touch ${pgpassFile}
             chmod 600 ${pgpassFile}
             PASSWORD=$(cat $CREDENTIALS_DIRECTORY/db.passwd)
@@ -195,6 +195,7 @@ in {
                 "${pkgs.bash}/bin/bash -c 'until [ -d ${cfg.database.password-file} ]; do sleep 1; done;'";
             in pkgs.writeShellScript "powerdns-initialize-db-prep.sh" ''
               ${pgWaitCmd}
+              ${waitForSecret}
             '';
             ExecStart = let
               initDomainSqlFile = domainOpts:
@@ -235,6 +236,12 @@ in {
           path = with pkgs; [ powerdns postgresql util-linux ];
           serviceConfig = let module-directory = "$RUNTIME_DIRECTORY/modules";
           in {
+            ExecStartPre = let
+              ncCmd = "${pkgs.netcat}/bin/nc -z ${db-cfg.host} ${
+                  toString db-cfg.port
+                }";
+            in pkgs.writeShellScript "powerdns-initialize-db-prep.sh"
+            "${pkgs.bash}/bin/bash -c 'until ${ncCmd}; do sleep 1; done;'";
             ExecStart = let
               genConfig = genPdnsConfig {
                 target-dir = "$RUNTIME_DIRECTORY";
@@ -288,7 +295,9 @@ in {
             '';
             RuntimeDirectory = "nexus-powerdns";
             LoadCredential = "db.passwd:${cfg.database.password-file}";
+            TimeoutStartSec = "180";
           };
+          unitConfig.ConditionPathExists = [ cfg.database.password-file ];
         };
       };
     };
