@@ -222,6 +222,7 @@ in {
             LoadCredential = "db.passwd:${cfg.database.password-file}";
             DynamicUser = true;
           };
+          unitConfig.ConditionPathExists = [ cfg.database.password-file ];
         };
 
         nexus-powerdns = {
