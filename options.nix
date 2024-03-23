@@ -138,6 +138,12 @@ in {
       };
     };
 
+    secondary-servers = mkOption {
+      type = listOf str;
+      description = "List of IPs acting as secondary servers.";
+      default = [ ];
+    };
+
     dns-server = {
       enable = mkEnableOption "Enable Fudo Nexus DNS server.";
 

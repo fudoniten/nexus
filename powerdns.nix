@@ -33,15 +33,22 @@ let
       cat ${gpgsql-target}
     '';
 
-  genPdnsConfig = { target-dir, listen-addresses, port, ... }@config:
+  genPdnsConfig =
+    { target-dir, listen-addresses, secondary-servers, port, ... }@config:
     let
       target = "${target-dir}/pdns.conf";
       gpgsql-target = "${target-dir}/modules/gpgsql.conf";
-      baseCfg = pkgs.writeText "pdns.conf.template" ''
+      baseCfg = let
+        secondary-server-str = concatStringsSep "," secondary-servers;
+        secondary-clause = optionalString (secondary-servers != [ ]) ''
+          allow-axfr-ips=${secondary-server-str}
+          also-notify=${secondary-server-str}
+        '';
+      in pkgs.writeText "pdns.conf.template" (secondary-clause + ''
         local-address=${concatStringsSep ", " listen-addresses}
         local-port=${toString port}
         launch=
-      '';
+      '');
       moduleDirectory = "${target-dir}/modules";
       genGpgsqlConfScript =
         genGpgsqlConfig "${moduleDirectory}/gpgsql.conf" config;
@@ -243,7 +250,8 @@ in {
             ExecStart = let
               genConfig = genPdnsConfig {
                 target-dir = "$RUNTIME_DIRECTORY";
-                inherit (cfg) port listen-addresses debug enable-dnssec;
+                inherit (cfg)
+                  port listen-addresses secondary-servers debug enable-dnssec;
                 inherit (config.nexus.database) database;
                 db-host = config.nexus.database.host;
                 db-user = cfg.database.user;
