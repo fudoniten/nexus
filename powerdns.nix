@@ -34,7 +34,7 @@ let
     '';
 
   genPdnsConfig =
-    { target-dir, listen-addresses, secondary-servers, port, ... }@config:
+    { target-dir, listen-addresses, port, secondary-servers ? [ ], ... }@config:
     let
       target = "${target-dir}/pdns.conf";
       gpgsql-target = "${target-dir}/modules/gpgsql.conf";
