@@ -70,11 +70,11 @@ in {
           (filterAttrs (_: opts: opts.type == "tailscale") cfg.domains);
       in {
         nexus-public-client =
-          mkIf (publicDomains != [ ]) (nexusClient publicDomains);
+          mkIf (publicDomains != [ ]) (nexusClient "public" publicDomains);
         nexus-private-client =
-          mkIf (publicDomains != [ ]) (nexusClient privateDomains);
-        nexus-tailscale-client =
-          mkIf (publicDomains != [ ]) (nexusClient tailscaleDomains);
+          mkIf (publicDomains != [ ]) (nexusClient "private" privateDomains);
+        nexus-tailscale-client = mkIf (publicDomains != [ ])
+          (nexusClient "tailscale" tailscaleDomains);
       };
     };
   };
