@@ -72,7 +72,7 @@ in {
         nexus-public-client =
           mkIf (publicDomains != [ ]) (nexusClient "public" publicDomains);
         nexus-private-client =
-          mkIf (publicDomains != [ ]) (nexusClient "private" privateDomains);
+          mkIf (privateDomains != [ ]) (nexusClient "private" privateDomains);
         nexus-tailscale-client = mkIf (publicDomains != [ ])
           (nexusClient "tailscale" tailscaleDomains);
       };
