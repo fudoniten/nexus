@@ -280,9 +280,21 @@ in {
       };
 
       domains = mkOption {
-        type = listOf str;
+        type = attrsOf (submodule ({ name, ... }: {
+          options = {
+            domain = mkOption {
+              type = str;
+              default = name;
+            };
+
+            type = mkOption {
+              type = enum [ "public" "private" "tailscale" ];
+              default = "public";
+            };
+          };
+        }));
         description = "Domain(s) to which this client belongs.";
-        default = [ ];
+        default = { };
       };
 
       delay-seconds = mkOption {
