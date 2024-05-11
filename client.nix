@@ -53,7 +53,7 @@ in {
                   ++ (optional cfg.ipv6 "--ipv6") ++ (optional hasSshfps
                     "--sshfps=$RUNTIME_DIRECTORY/${hostname}-sshfps.txt")
                   ++ (optional cfg.verbose "--verbose"));
-              in pkgs.writeShellScript "nexus-client.sh" ''
+              in pkgs.writeShellScript "nexus-${type}-client.sh" ''
                 ${optionalString hasSshfps genSshfps}
                 ${execScript}
               '';
