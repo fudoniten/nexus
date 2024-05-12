@@ -197,7 +197,7 @@
       "inputs": {
         "flake-compat": "flake-compat_2",
         "gitignore": "gitignore_2",
-        "nixpkgs": "nixpkgs_3",
+        "nixpkgs": "nixpkgs_2",
         "utils": "utils_4"
       },
       "locked": {
@@ -218,7 +218,7 @@
       "inputs": {
         "flake-compat": "flake-compat_3",
         "gitignore": "gitignore_3",
-        "nixpkgs": "nixpkgs_4",
+        "nixpkgs": "nixpkgs_3",
         "utils": "utils_6"
       },
       "locked": {
@@ -239,7 +239,7 @@
       "inputs": {
         "flake-compat": "flake-compat_4",
         "gitignore": "gitignore_4",
-        "nixpkgs": "nixpkgs_6",
+        "nixpkgs": "nixpkgs_4",
         "utils": "utils_10"
       },
       "locked": {
@@ -260,7 +260,7 @@
       "inputs": {
         "flake-compat": "flake-compat_5",
         "gitignore": "gitignore_5",
-        "nixpkgs": "nixpkgs_7",
+        "nixpkgs": "nixpkgs_5",
         "utils": "utils_13"
       },
       "locked": {
@@ -281,7 +281,7 @@
       "inputs": {
         "flake-compat": "flake-compat_6",
         "gitignore": "gitignore_6",
-        "nixpkgs": "nixpkgs_9",
+        "nixpkgs": "nixpkgs_6",
         "utils": "utils_16"
       },
       "locked": {
@@ -302,7 +302,7 @@
       "inputs": {
         "flake-compat": "flake-compat_7",
         "gitignore": "gitignore_7",
-        "nixpkgs": "nixpkgs_10",
+        "nixpkgs": "nixpkgs_7",
         "utils": "utils_18"
       },
       "locked": {
@@ -851,7 +851,10 @@
     "fudo-clojure": {
       "inputs": {
         "helpers": "helpers",
-        "nixpkgs": "nixpkgs_2",
+        "nixpkgs": [
+          "nexus-client",
+          "nixpkgs"
+        ],
         "utils": "utils_3"
       },
       "locked": {
@@ -871,7 +874,10 @@
     "fudo-clojure_2": {
       "inputs": {
         "helpers": "helpers_5",
-        "nixpkgs": "nixpkgs_8",
+        "nixpkgs": [
+          "nexus-server",
+          "nixpkgs"
+        ],
         "utils": "utils_15"
       },
       "locked": {
@@ -1236,11 +1242,11 @@
         "utils": "utils_9"
       },
       "locked": {
-        "lastModified": 1715534489,
-        "narHash": "sha256-HMlcmLWvw8fnlgOiy8OT9+LF1JG9P/KrcMGLGfL/Fts=",
+        "lastModified": 1715535549,
+        "narHash": "sha256-G2amz0LFeUlIV+hZfdERpx0R/hYc41lWhHj76cN/hAU=",
         "ref": "refs/heads/master",
-        "rev": "7684356c6065d8ace61ee8d38e1d2cd89a275e8c",
-        "revCount": 54,
+        "rev": "676e53bc770f1ee99a1dc4af24fa71c45e3c9b3a",
+        "revCount": 56,
         "type": "git",
         "url": "https://fudo.dev/public/nexus-client.git"
       },
@@ -1252,7 +1258,10 @@
     "nexus-crypto": {
       "inputs": {
         "helpers": "helpers_3",
-        "nixpkgs": "nixpkgs_5",
+        "nixpkgs": [
+          "nexus-client",
+          "nixpkgs"
+        ],
         "utils": "utils_8"
       },
       "locked": {
@@ -1278,11 +1287,11 @@
         "utils": "utils_12"
       },
       "locked": {
-        "lastModified": 1713464628,
-        "narHash": "sha256-F/kEeybGZlQ5MrsjJ1+cs4Ld8zeSFnOijBtOQ1NULAM=",
+        "lastModified": 1715535196,
+        "narHash": "sha256-Qm8BRwZGel1TSqiNmWyI33uDVeUxRTHsR7MuMZHMqjw=",
         "ref": "refs/heads/master",
-        "rev": "874b5997d52df9b9b7aeaaf907b6e92afcc36410",
-        "revCount": 14,
+        "rev": "42abbe81f0a6d5f73ad0cc5bbaba7f7137279a15",
+        "revCount": 15,
         "type": "git",
         "url": "https://fudo.dev/public/nexus-crypto.git"
       },
@@ -1294,7 +1303,10 @@
     "nexus-crypto_3": {
       "inputs": {
         "helpers": "helpers_7",
-        "nixpkgs": "nixpkgs_11",
+        "nixpkgs": [
+          "nexus-server",
+          "nixpkgs"
+        ],
         "utils": "utils_20"
       },
       "locked": {
@@ -1322,11 +1334,11 @@
         "utils": "utils_21"
       },
       "locked": {
-        "lastModified": 1713475139,
-        "narHash": "sha256-enKVvR5cbDsQfAVTYc9UvchN4k03aw0J4ed/oPFnl50=",
+        "lastModified": 1715535253,
+        "narHash": "sha256-9UC1MhbAvHrjxCfMhQNn7WEtT/9o2U80U7Rp6RowW/Y=",
         "ref": "refs/heads/master",
-        "rev": "e00af96bcac013ddc278b272120a5f0a59bcf433",
-        "revCount": 63,
+        "rev": "25a2255b0354dd67fe362617d116a2a644519d32",
+        "revCount": 64,
         "type": "git",
         "url": "https://fudo.dev/public/nexus-server.git"
       },
@@ -1781,7 +1793,7 @@
         "type": "github"
       }
     },
-    "nixpkgs_10": {
+    "nixpkgs_2": {
       "locked": {
         "lastModified": 1673785507,
         "narHash": "sha256-EPUT8yVdvJhhjhbgnFWXXd4IUPKSOmww2+z4AmOdyPI=",
@@ -1794,51 +1806,6 @@
         "owner": "NixOS",
         "repo": "nixpkgs",
         "type": "github"
-      }
-    },
-    "nixpkgs_11": {
-      "locked": {
-        "lastModified": 1713344939,
-        "narHash": "sha256-jpHkAt0sG2/J7ueKnG7VvLLkBYUMQbXQ2L8OBpVG53s=",
-        "owner": "NixOS",
-        "repo": "nixpkgs",
-        "rev": "e402c3eb6d88384ca6c52ef1c53e61bdc9b84ddd",
-        "type": "github"
-      },
-      "original": {
-        "id": "nixpkgs",
-        "ref": "nixos-23.11",
-        "type": "indirect"
-      }
-    },
-    "nixpkgs_12": {
-      "locked": {
-        "lastModified": 1715395895,
-        "narHash": "sha256-DreMqi6+qa21ffLQqhMQL2XRUkAGt3N7iVB5FhJKie4=",
-        "owner": "NixOS",
-        "repo": "nixpkgs",
-        "rev": "71bae31b7dbc335528ca7e96f479ec93462323ff",
-        "type": "github"
-      },
-      "original": {
-        "id": "nixpkgs",
-        "ref": "nixos-23.11",
-        "type": "indirect"
-      }
-    },
-    "nixpkgs_2": {
-      "locked": {
-        "lastModified": 1715218190,
-        "narHash": "sha256-R98WOBHkk8wIi103JUVQF3ei3oui4HvoZcz9tYOAwlk=",
-        "owner": "NixOS",
-        "repo": "nixpkgs",
-        "rev": "9a9960b98418f8c385f52de3b09a63f9c561427a",
-        "type": "github"
-      },
-      "original": {
-        "id": "nixpkgs",
-        "ref": "nixos-23.11",
-        "type": "indirect"
       }
     },
     "nixpkgs_3": {
@@ -1873,17 +1840,17 @@
     },
     "nixpkgs_5": {
       "locked": {
-        "lastModified": 1713344939,
-        "narHash": "sha256-jpHkAt0sG2/J7ueKnG7VvLLkBYUMQbXQ2L8OBpVG53s=",
+        "lastModified": 1673785507,
+        "narHash": "sha256-EPUT8yVdvJhhjhbgnFWXXd4IUPKSOmww2+z4AmOdyPI=",
         "owner": "NixOS",
         "repo": "nixpkgs",
-        "rev": "e402c3eb6d88384ca6c52ef1c53e61bdc9b84ddd",
+        "rev": "d06d765eeac716d8f1ca80f0935fd6fc951816ad",
         "type": "github"
       },
       "original": {
-        "id": "nixpkgs",
-        "ref": "nixos-23.11",
-        "type": "indirect"
+        "owner": "NixOS",
+        "repo": "nixpkgs",
+        "type": "github"
       }
     },
     "nixpkgs_6": {
@@ -1918,11 +1885,11 @@
     },
     "nixpkgs_8": {
       "locked": {
-        "lastModified": 1713344939,
-        "narHash": "sha256-jpHkAt0sG2/J7ueKnG7VvLLkBYUMQbXQ2L8OBpVG53s=",
+        "lastModified": 1715395895,
+        "narHash": "sha256-DreMqi6+qa21ffLQqhMQL2XRUkAGt3N7iVB5FhJKie4=",
         "owner": "NixOS",
         "repo": "nixpkgs",
-        "rev": "e402c3eb6d88384ca6c52ef1c53e61bdc9b84ddd",
+        "rev": "71bae31b7dbc335528ca7e96f479ec93462323ff",
         "type": "github"
       },
       "original": {
@@ -1931,27 +1898,12 @@
         "type": "indirect"
       }
     },
-    "nixpkgs_9": {
-      "locked": {
-        "lastModified": 1673785507,
-        "narHash": "sha256-EPUT8yVdvJhhjhbgnFWXXd4IUPKSOmww2+z4AmOdyPI=",
-        "owner": "NixOS",
-        "repo": "nixpkgs",
-        "rev": "d06d765eeac716d8f1ca80f0935fd6fc951816ad",
-        "type": "github"
-      },
-      "original": {
-        "owner": "NixOS",
-        "repo": "nixpkgs",
-        "type": "github"
-      }
-    },
     "root": {
       "inputs": {
         "nexus-client": "nexus-client",
         "nexus-crypto": "nexus-crypto_2",
         "nexus-server": "nexus-server",
-        "nixpkgs": "nixpkgs_12",
+        "nixpkgs": "nixpkgs_8",
         "utils": "utils_22"
       }
     },
