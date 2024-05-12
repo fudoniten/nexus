@@ -54,7 +54,9 @@ in {
                     cfg.certificate-authorities) ++ (optional cfg.ipv4 "--ipv4")
                   ++ (optional cfg.ipv6 "--ipv6") ++ (optional hasSshfps
                     "--sshfps=$RUNTIME_DIRECTORY/${hostname}-sshfps.txt")
-                  ++ (optional cfg.verbose "--verbose"));
+                  ++ (optional cfg.verbose "--verbose")
+                  ++ (optional (type == "private") "--private")
+                  ++ (optional (type == "tailscale") "--tailscale"));
               in pkgs.writeShellScript "nexus-${type}-client.sh" ''
                 ${optionalString hasSshfps genSshfps}
                 ${execScript}
