@@ -49,7 +49,7 @@ in {
                   "--hostname=${cfg.hostname}"
                   "--key-file=$CREDENTIALS_DIRECTORY/hmac.key"
                 ] ++ (map (srv: "--server=${srv}") cfg.servers)
-                  ++ (map (dom: "--domain=${dom}") cfg.domains)
+                  ++ (map (dom: "--domain=${dom}") domains)
                   ++ (map (ca: "--certificate-authority=${ca}")
                     cfg.certificate-authorities) ++ (optional cfg.ipv4 "--ipv4")
                   ++ (optional cfg.ipv6 "--ipv6") ++ (optional hasSshfps
