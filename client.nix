@@ -37,8 +37,8 @@ in {
             serviceConfig = {
               DynamicUser = true;
               Restart = "always";
-              RuntimeDirectory = "nexus-client";
-              CacheDirectory = optionalString hasSshfps "nexus-client";
+              RuntimeDirectory = "nexus-${type}-client";
+              CacheDirectory = optionalString hasSshfps "nexus-${type}-client";
               LoadCredential = [ "hmac.key:${cfg.hmac-key-file}" ]
                 ++ (mapAttrsToList (file: path: "${file}:${path}") sshKeyMap);
               ExecStart = let
