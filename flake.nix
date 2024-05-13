@@ -3,6 +3,7 @@
 
   inputs = {
     nixpkgs.url = "nixpkgs/nixos-23.11";
+    utils.url = "github:numtide/flake-utils";
     nexus-client = {
       url = "git+https://fudo.dev/public/nexus-client.git";
       inputs.nixpkgs.follows = "nixpkgs";
@@ -13,10 +14,6 @@
     };
     nexus-server = {
       url = "git+https://fudo.dev/public/nexus-server.git";
-      inputs.nixpkgs.follows = "nixpkgs";
-    };
-    utils = {
-      url = "github:numtide/flake-utils";
       inputs.nixpkgs.follows = "nixpkgs";
     };
   };

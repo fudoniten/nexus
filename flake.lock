@@ -1334,11 +1334,11 @@
         "utils": "utils_21"
       },
       "locked": {
-        "lastModified": 1715565259,
-        "narHash": "sha256-KTlpCuDlwRUFrqB+jNE7HqBZpptmTT+KEK+P/wm0hwo=",
+        "lastModified": 1715619012,
+        "narHash": "sha256-O5Vf8aRvzRzLKrFI67O/SJq+uglf5hQnDu14+ksO784=",
         "ref": "refs/heads/master",
-        "rev": "6f488e7b49fe940cae819bb048a33e1cfd83439c",
-        "revCount": 71,
+        "rev": "f9840bf9cfc43a276feca3809f44aa1cc7fe3e02",
+        "revCount": 72,
         "type": "git",
         "url": "https://fudo.dev/public/nexus-server.git"
       },
@@ -1885,11 +1885,11 @@
     },
     "nixpkgs_8": {
       "locked": {
-        "lastModified": 1715395895,
-        "narHash": "sha256-DreMqi6+qa21ffLQqhMQL2XRUkAGt3N7iVB5FhJKie4=",
+        "lastModified": 1715542476,
+        "narHash": "sha256-FF593AtlzQqa8JpzrXyRws4CeKbc5W86o8tHt4nRfIg=",
         "owner": "NixOS",
         "repo": "nixpkgs",
-        "rev": "71bae31b7dbc335528ca7e96f479ec93462323ff",
+        "rev": "44072e24566c5bcc0b7aa9178a0104f4cfffab19",
         "type": "github"
       },
       "original": {
