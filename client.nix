@@ -11,8 +11,6 @@ let
     (map (path: nameValuePair (baseNameOf path) path) cfg.ssh-key-files);
   hasSshfps = (lib.length cfg.ssh-key-files) > 0;
 
-  pthru = o: trace o o;
-
 in {
   imports = [ ./options.nix ];
 
@@ -73,12 +71,12 @@ in {
         tailscaleDomains = attrNames
           (filterAttrs (_: opts: opts.type == "tailscale") cfg.domains);
       in {
-        nexus-public-client = mkIf (publicDomains != [ ])
-          (nexusClient "public" (pthru publicDomains));
-        nexus-private-client = mkIf (privateDomains != [ ])
-          (nexusClient "private" (pthru privateDomains));
+        nexus-public-client =
+          mkIf (publicDomains != [ ]) (nexusClient "public" publicDomains);
+        nexus-private-client =
+          mkIf (privateDomains != [ ]) (nexusClient "private" privateDomains);
         nexus-tailscale-client = mkIf (publicDomains != [ ])
-          (nexusClient "tailscale" (pthru tailscaleDomains));
+          (nexusClient "tailscale" tailscaleDomains);
       };
     };
   };
