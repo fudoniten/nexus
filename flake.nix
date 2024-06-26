@@ -5,15 +5,15 @@
     nixpkgs.url = "nixpkgs/nixos-23.11";
     utils.url = "github:numtide/flake-utils";
     nexus-client = {
-      url = "git+https://fudo.dev/public/nexus-client.git";
+      url = "github:fudoniten/nexus-client";
       inputs.nixpkgs.follows = "nixpkgs";
     };
     nexus-crypto = {
-      url = "git+https://fudo.dev/public/nexus-crypto.git";
+      url = "github:fudoniten/nexus-crypto";
       inputs.nixpkgs.follows = "nixpkgs";
     };
     nexus-server = {
-      url = "git+https://fudo.dev/public/nexus-server.git";
+      url = "github:fudoniten/nexus-server";
       inputs.nixpkgs.follows = "nixpkgs";
     };
   };
