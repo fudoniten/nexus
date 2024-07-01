@@ -17,7 +17,6 @@ let
         gpgsql-user=${db-user}
         gpgsql-password=__PASSWORD__
         gpgsql-dnssec=${if enable-dnssec then "yes" else "no"}
-        gpgsql-extra-connection-parameters=sslmode=require
         ${optionalString debug ''
           log-dns-details
           log-dns-queries
