@@ -189,7 +189,8 @@ in {
             PGDATABASE = db-cfg.database;
             PGPORT = toString db-cfg.port;
             PGUSER = cfg.database.user;
-            PGSSLMODE = "require";
+            ## Only running on localhost for now
+            # PGSSLMODE = "require";
           };
           serviceConfig = {
             ExecStartPre = let
