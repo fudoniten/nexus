@@ -121,7 +121,7 @@ let
         (optional (nsOpts.ipv4-address != null)
           (mkRecord "${nsOpts.name}.${domain-name}" "A" nsOpts.ipv4-address))
         ++ (optional (nsOpts.ipv6-address != null)
-          (mkRecord "${nsOpts.name}.${domain-name}" "AAAA" nsOpts.ipv4-address))
+          (mkRecord "${nsOpts.name}.${domain-name}" "AAAA" nsOpts.ipv6-address))
         ++ [ (mkRecord domain-name "NS" "${nsOpts.name}.${domain-name}") ])
         (attrValues domain.nameservers);
 
