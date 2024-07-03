@@ -40,14 +40,16 @@ let
       baseCfg = let
         secondary-server-str = concatStringsSep "," secondary-servers;
         secondary-clause = optionalString (secondary-servers != [ ]) ''
+          notify-slaves=yes
           allow-axfr-ips=${secondary-server-str}
           also-notify=${secondary-server-str}
         '';
-      in pkgs.writeText "pdns.conf.template" (secondary-clause + ''
+      in pkgs.writeText "pdns.conf.template" (''
+        master=yes
         local-address=${concatStringsSep ", " listen-addresses}
         local-port=${toString port}
         launch=
-      '');
+      '' + secondary-clause);
       moduleDirectory = "${target-dir}/modules";
       genGpgsqlConfScript =
         genGpgsqlConfig "${moduleDirectory}/gpgsql.conf" config;
