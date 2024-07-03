@@ -40,9 +40,7 @@ let
       baseCfg = let
         secondary-server-str = concatStringsSep "," secondary-servers;
         secondary-clause = optionalString (secondary-servers != [ ]) ''
-          notify-slaves=yes
           allow-axfr-ips=${secondary-server-str}
-          also-notify=${secondary-server-str}
         '';
       in pkgs.writeText "pdns.conf.template" (''
         local-address=${concatStringsSep ", " listen-addresses}
@@ -111,6 +109,37 @@ let
       END IF;
     '';
 
+  ensureExists = domain: record:
+    let
+      selectClause = concatStringsSep " " [
+        "SELECT * FROM domains, records WHERE"
+        "records.name='${record.name}'"
+        "AND"
+        "records.type='${record.type}'"
+        "AND"
+        "records.content='${record.content}'"
+        "AND"
+        "records.domain_id=domains.id"
+        "AND"
+        "domains.name='${domain}'"
+      ];
+      insertClause = concatStringsSep " " [
+        "INSERT INTO records (domain_id, name, type, content)"
+        "SELECT"
+        "domains.id,"
+        "'${record.name}',"
+        "'${record.type}',"
+        "'${record.content}'"
+        "FROM domains"
+        "WHERE"
+        "domains.name='${domain}'"
+      ];
+    in ''
+      IF NOT EXISTS (${selectClause}) THEN
+        ${insertClause}
+      END IF;
+    '';
+
   mapConcatAttrsToList = f: as: concatLists (mapAttrsToList f as);
 
   initializeDomainSql = domain:
@@ -118,13 +147,14 @@ let
       domain-name = domain.domain-name;
       ipv6-net = net: (builtins.match ":" net) != null;
       ipv4-net = net: !(ipv6-net net);
+      # NOTE: the actual NS records are below, they don't work here because
+      #       the name/type are not unique
       ns-records = concatMap (nsOpts:
         (optional (nsOpts.ipv4-address != null)
           (mkRecord "${nsOpts.name}.${domain-name}" "A" nsOpts.ipv4-address))
         ++ (optional (nsOpts.ipv6-address != null)
-          (mkRecord "${nsOpts.name}.${domain-name}" "AAAA" nsOpts.ipv6-address))
-        ++ [ (mkRecord domain-name "NS" "${nsOpts.name}.${domain-name}") ])
-        (attrValues domain.nameservers);
+          (mkRecord "${nsOpts.name}.${domain-name}" "AAAA"
+            nsOpts.ipv6-address))) (attrValues domain.nameservers);
 
       primaryNameserver = head (attrValues domain.nameservers);
 
@@ -147,6 +177,9 @@ let
           (alias: target: mkRecord "${alias}.${domain-name}" "CNAME" target)
           domain.aliases) ++ domain.records ++ ns-records;
       records-clauses = map (insertOrUpdate domain-name) domain-records;
+      ns-clauses = map (ensureExists domain-name)
+        (map (nsOpts: mkRecord domain-name "NS" "${nsOpts.name}.${domain-name}")
+          (attrValues domain.nameservers));
     in ''
       DO $$
       BEGIN
