@@ -45,7 +45,6 @@ let
           also-notify=${secondary-server-str}
         '';
       in pkgs.writeText "pdns.conf.template" (''
-        master=yes
         local-address=${concatStringsSep ", " listen-addresses}
         local-port=${toString port}
         launch=
