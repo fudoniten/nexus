@@ -31,6 +31,7 @@ in {
           in {
             wantedBy = [ "multi-user.target" ];
             after = [ "network-online.target" ];
+            requires = [ "network-online.target" ];
             path = [ nexus-client ] ++ (with pkgs; [ openssh ]);
             serviceConfig = {
               DynamicUser = true;
