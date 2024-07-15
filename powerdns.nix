@@ -6,11 +6,6 @@ let
 
   db-cfg = config.nexus.database;
 
-  hostname = config.instance.hostname;
-
-  servedDomains = filterAttrs (_: domainOpts: domainOpts.server == hostname)
-    config.nexus.domains;
-
   genGpgsqlConfig = gpgsql-target:
     { db-host, db-user, db-password-file, database, enable-dnssec, debug ? false
     , ... }:
@@ -250,7 +245,7 @@ in {
                 }
               '';
               domainInitScripts = concatStringsSep "\n"
-                (mapAttrsToList domainInitScript servedDomains);
+                (mapAttrsToList domainInitScript config.nexus.domains);
             in pkgs.writeShellScript "powerdns-initialize-db.sh" ''
               ${mkPgpassFile}
               export HOME=$RUNTIME_DIRECTORY
@@ -322,7 +317,7 @@ in {
               in pkgs.writeShellScript "nexus-powerdns-secure-zones.sh" ''
                 export HOME=$RUNTIME_DIRECTORY
                 ${concatStringsSep "\n"
-                (map signDomain (attrNames servedDomains))}
+                (map signDomain (attrNames config.nexus.domains))}
               '';
               launchCmd = concatStringsSep " " ([
                 "${pkgs.powerdns}/bin/pdns_server"
@@ -351,9 +346,9 @@ in {
           path = with pkgs; [ powerdns ];
           serviceConfig.ExecStart = let
             notifyCmd = ip: domain: "pdns_notify ${ip} ${domain}";
-            notifyCmds = concatMap
-              (ip: map (domain: notifyCmd ip domain) (attrNames servedDomains))
-              cfg.secondary-servers;
+            notifyCmds = concatMap (ip:
+              map (domain: notifyCmd ip domain)
+              (attrNames config.nexus.domains)) cfg.secondary-servers;
           in pkgs.writeShellScript "pdns-notify-secondaries.sh"
           (concatStringsSep "\n" notifyCmds);
         };
