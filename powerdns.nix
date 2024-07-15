@@ -339,6 +339,28 @@ in {
           };
           unitConfig.ConditionPathExists = [ cfg.database.password-file ];
         };
+
+        nexus-powerdns-notify = {
+          description =
+            "Notify all secondaries to sync DNS. Modifying DNS doesn't seem to trigger a sync.";
+          path = with pkgs; [ powerdns ];
+          serviceConfig.ExecStart = let
+            notifyCmd = ip: domain: "pdns_notify ${ip} ${domain}";
+            notifyCmds = concatMap
+              (ip: map (domain: notifyCmd ip domain) (attrNames cfg.domains))
+              cfg.secondary-servers;
+          in pkgs.writeShellScript "pdns-notify-secondaries.sh"
+          (concatStringsSep "\n" notifyCmds);
+        };
+      };
+
+      timers.nexus-powerdns-notify = {
+        wantedBy = [ "timers.target" ];
+        timerConfig = {
+          OnBootSec = "1m";
+          OnUnitActivateSec = "30m";
+          Unit = "nexus-powerdns-notify.service";
+        };
       };
     };
   };
