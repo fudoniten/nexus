@@ -197,12 +197,6 @@ in {
         default = { };
       };
 
-      port = mkOption {
-        type = port;
-        description = "External port on which to listen for requests.";
-        default = 443;
-      };
-
       internal-port = mkOption {
         type = port;
         description = "Port on which to listen for requests from nginx.";
