@@ -45,6 +45,7 @@ let
       in pkgs.writeText "pdns.conf.template" (''
         local-address=${concatStringsSep ", " listen-addresses}
         local-port=${toString port}
+        master=yes
         launch=
       '' + secondary-clause);
       moduleDirectory = "${target-dir}/modules";
