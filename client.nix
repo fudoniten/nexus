@@ -43,7 +43,6 @@ in {
               ExecStart = let
                 execScript = concatStringsSep " " ([
                   "nexus-client"
-                  "--port=${toString config.nexus.server.internal-port}"
                   "--delay-seconds=${toString cfg.delay-seconds}"
                   "--hostname=${cfg.hostname}"
                   "--key-file=$CREDENTIALS_DIRECTORY/hmac.key"
