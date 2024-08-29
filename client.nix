@@ -43,6 +43,7 @@ in {
               ExecStart = let
                 execScript = concatStringsSep " " ([
                   "nexus-client"
+                  "--port=443" # It's defaulting to 80...make this better later
                   "--delay-seconds=${toString cfg.delay-seconds}"
                   "--hostname=${cfg.hostname}"
                   "--key-file=$CREDENTIALS_DIRECTORY/hmac.key"
