@@ -216,14 +216,16 @@ in {
 
       client-alias-map = let
         domainAliases = submodule ({ name, ... }: {
-          domain = mkOption {
-            type = str;
-            description = "Domain to which these aliases belong";
-          };
+          options = {
+            domain = mkOption {
+              type = str;
+              description = "Domain to which these aliases belong";
+            };
 
-          aliases = mkOption {
-            type = listOf str;
-            description = "List of aliases mapping to the given host.";
+            aliases = mkOption {
+              type = listOf str;
+              description = "List of aliases mapping to the given host.";
+            };
           };
         });
       in mkOption {
