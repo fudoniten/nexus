@@ -1249,11 +1249,11 @@
         "utils": "utils_9"
       },
       "locked": {
-        "lastModified": 1724947711,
-        "narHash": "sha256-nnltWmS3pQWyd5lGlFlLyFtlWERPFK08M6qlbvFTZsM=",
+        "lastModified": 1724956223,
+        "narHash": "sha256-o5H9hxlB0YQk2bK/X6Qzn4Vxd3mwyWbwXRx2JFibpOU=",
         "owner": "fudoniten",
         "repo": "nexus-client",
-        "rev": "91f11d91936db201624d34b5bf98aad073d26774",
+        "rev": "3442a0a57ed44919413cedc35da75a4cbef993f9",
         "type": "github"
       },
       "original": {
