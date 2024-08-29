@@ -48,9 +48,12 @@ in {
                   "--hostname=${cfg.hostname}"
                   "--key-file=$CREDENTIALS_DIRECTORY/hmac.key"
                 ] ++ (map (srv: "--server=${srv}") cfg.servers)
-                  ++ (map (dom: "--domain=${dom}") domains)
-                  ++ (map (ca: "--certificate-authority=${ca}")
-                    cfg.certificate-authorities) ++ (optional cfg.ipv4 "--ipv4")
+                  ++ (map ({ domain, ... }: "--domain=${domain}") domains)
+                  ++ (concatMap ({ domain, aliases, ... }:
+                    (map (alias: "--alias=${alias}:${domain}") aliases))
+                    domains) ++ (map (ca: "--certificate-authority=${ca}")
+                      cfg.certificate-authorities)
+                  ++ (optional cfg.ipv4 "--ipv4")
                   ++ (optional cfg.ipv6 "--ipv6") ++ (optional hasSshfps
                     "--sshfps=$RUNTIME_DIRECTORY/${hostname}-sshfps.txt")
                   ++ (optional cfg.verbose "--verbose")
@@ -64,12 +67,12 @@ in {
           };
 
         publicDomains =
-          attrNames (filterAttrs (_: opts: opts.type == "public") cfg.domains);
+          attrValues (filterAttrs (_: opts: opts.type == "public") cfg.domains);
 
-        privateDomains =
-          attrNames (filterAttrs (_: opts: opts.type == "private") cfg.domains);
+        privateDomains = attrValues
+          (filterAttrs (_: opts: opts.type == "private") cfg.domains);
 
-        tailscaleDomains = attrNames
+        tailscaleDomains = attrValues
           (filterAttrs (_: opts: opts.type == "tailscale") cfg.domains);
       in {
         nexus-public-client =

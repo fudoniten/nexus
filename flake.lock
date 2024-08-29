@@ -1249,11 +1249,11 @@
         "utils": "utils_9"
       },
       "locked": {
-        "lastModified": 1720833348,
-        "narHash": "sha256-JP/K9jVokGV4SWR0/+/+y4WZr5rBDM7N4pAh66l49MQ=",
+        "lastModified": 1724947711,
+        "narHash": "sha256-nnltWmS3pQWyd5lGlFlLyFtlWERPFK08M6qlbvFTZsM=",
         "owner": "fudoniten",
         "repo": "nexus-client",
-        "rev": "a667cfeee9619b2735c64e2d813d077e2efb7544",
+        "rev": "91f11d91936db201624d34b5bf98aad073d26774",
         "type": "github"
       },
       "original": {
@@ -1341,11 +1341,11 @@
         "utils": "utils_21"
       },
       "locked": {
-        "lastModified": 1720833338,
-        "narHash": "sha256-FLFELDZzV5imRQdZroyCLZUW1fHoNoycvUMadWMEg1I=",
+        "lastModified": 1724876478,
+        "narHash": "sha256-hDD+hczEc6T/5qarNRb0go9wuv5iPAGBC95gaWpqBVI=",
         "owner": "fudoniten",
         "repo": "nexus-server",
-        "rev": "6c489f5ba8752e16600daf3dede1ab95e80ead87",
+        "rev": "0549fe119e641da47057297ea9506c3e8173610c",
         "type": "github"
       },
       "original": {
@@ -1717,11 +1717,11 @@
     },
     "nixpkgs_8": {
       "locked": {
-        "lastModified": 1720691131,
-        "narHash": "sha256-CWT+KN8aTPyMIx8P303gsVxUnkinIz0a/Cmasz1jyIM=",
+        "lastModified": 1724727824,
+        "narHash": "sha256-0XH9MJk54imJm+RHOLTUJ7e+ponLW00tw5ke4MTVa1Y=",
         "owner": "NixOS",
         "repo": "nixpkgs",
-        "rev": "a046c1202e11b62cbede5385ba64908feb7bfac4",
+        "rev": "36bae45077667aff5720e5b3f1a5458f51cf0776",
         "type": "github"
       },
       "original": {

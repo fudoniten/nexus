@@ -8,6 +8,9 @@ let
   cfg = config.nexus.server;
   db-cfg = config.nexus.database;
 
+  host-alias-map = pkgs.writeText "nexus-host-alias-map.json"
+    (builtins.toJSON cfg.client-alias-map);
+
 in {
   imports = [ ./options.nix ];
 
@@ -31,6 +34,7 @@ in {
           (concatStringsSep " " ([
             "nexus-server"
             "--host-keys=$CREDENTIALS_DIRECTORY/host-keys.json"
+            "--host-alias-map=${host-alias-map}"
             "--database=${db-cfg.database}"
             "--database-user=${cfg.database.user}"
             "--database-password-file=$CREDENTIALS_DIRECTORY/db.passwd"

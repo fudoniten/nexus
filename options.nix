@@ -214,6 +214,24 @@ in {
           "Path (on the local host) to JSON file containing a hostname to HMAC key.";
       };
 
+      client-alias-map = let
+        domainAliases = submodule ({ name, ... }: {
+          domain = mkOption {
+            type = str;
+            description = "Domain to which these aliases belong";
+          };
+
+          aliases = mkOption {
+            type = listOf str;
+            description = "List of aliases mapping to the given host.";
+          };
+        });
+      in mkOption {
+        type = attrsOf (listOf domainAliases);
+        description = "Map of host to host aliases.";
+        default = { };
+      };
+
       database = {
         user = mkOption {
           type = str;
@@ -284,6 +302,13 @@ in {
             type = mkOption {
               type = enum [ "public" "private" "tailscale" ];
               default = "public";
+            };
+
+            aliases = mkOption {
+              type = listOf str;
+              description =
+                "List of other 'hostnames' to report to the server.";
+              default = [ ];
             };
           };
         }));
