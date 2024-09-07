@@ -141,11 +141,24 @@ let
       END IF;
     '';
 
+  ensureChallengeTable = concatStringsSep " " [
+    "CREATE TABLE IF NOT EXISTS challenges"
+    "("
+    "domain_id INTEGER NOT NULL,"
+    "challenge_id UUID NOT NULL,"
+    "hostname VARCHAR(255) NOT NULL,"
+    "created_at TIMESTAMP DEFAULT NOW(),"
+    "record_id BIGINT NOT NULL,"
+    "active BOOLEAN DEFAULT TRUE,"
+    "PRIMARY_KEY(domain_id, challenge_id)"
+    ");"
+  ];
+
   mapConcatAttrsToList = f: as: concatLists (mapAttrsToList f as);
 
   initializeDomainSql = domain:
     let
-      domain-name = domain.domain-name;
+      inherit (domain) domain-name;
       ipv6-net = net: (builtins.match ":" net) != null;
       ipv4-net = net: !(ipv6-net net);
       # NOTE: the actual NS records are below, they don't work here because
@@ -184,6 +197,7 @@ let
     in ''
       DO $$
       BEGIN
+      ${ensureChallengeTable}
       INSERT INTO domains (name, master, type, notified_serial) SELECT '${domain-name}', '${primaryNameserver.ipv4-address}', 'MASTER', '${
         toString config.instance.build-timestamp
       }' WHERE NOT EXISTS (SELECT * FROM domains WHERE name='${domain-name}');
