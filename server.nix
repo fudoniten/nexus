@@ -34,6 +34,7 @@ in {
           (concatStringsSep " " ([
             "nexus-server"
             "--host-keys=$CREDENTIALS_DIRECTORY/host-keys.json"
+            "--challenge-keys=$CREDENTIALS_DIRECTORY/challenge-keys.json"
             "--host-alias-map=${host-alias-map}"
             "--database=${db-cfg.database}"
             "--database-user=${cfg.database.user}"
@@ -53,6 +54,7 @@ in {
         LoadCredential = [
           "db.passwd:${cfg.database.password-file}"
           "host-keys.json:${cfg.client-keys-file}"
+          "challenge-keys.json:${cfg.challenge-keys-file}"
         ];
         DynamicUser = true;
         # Needs access to network for Postgresql

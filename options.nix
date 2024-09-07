@@ -214,6 +214,12 @@ in {
           "Path (on the local host) to JSON file containing a hostname to HMAC key.";
       };
 
+      challenge-keys-file = mkOption {
+        type = str;
+        description =
+          "Path (on the local host) to JSON file containing a client to HMAC key for challenge requests.";
+      };
+
       client-alias-map = let
         domainAliases = submodule ({ name, ... }: {
           options = {
