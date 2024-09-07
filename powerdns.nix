@@ -150,7 +150,7 @@ let
     "created_at TIMESTAMP DEFAULT NOW(),"
     "record_id BIGINT NOT NULL,"
     "active BOOLEAN DEFAULT TRUE,"
-    "PRIMARY_KEY(domain_id, challenge_id)"
+    "PRIMARY KEY(domain_id, challenge_id)"
     ");"
   ];
 
