@@ -147,9 +147,9 @@ let
     "domain_id INTEGER NOT NULL,"
     "challenge_id UUID NOT NULL,"
     "hostname VARCHAR(255) NOT NULL,"
-    "created_at TIMESTAMP DEFAULT NOW(),"
+    "created_at TIMESTAMP NOT NULL DEFAULT NOW(),"
     "record_id BIGINT NOT NULL,"
-    "active BOOLEAN DEFAULT TRUE,"
+    "active BOOLEAN NOT NULL DEFAULT TRUE,"
     "PRIMARY KEY(domain_id, challenge_id)"
     ");"
   ];
