@@ -286,7 +286,8 @@ in {
           after =
             [ "network-online.target" "nexus-powerdns-initialize-db.service" ];
           wantedBy = [ "multi-user.target" ];
-          requires = [ "nexus-powerdns-initialize-db.service" ];
+          requires =
+            [ "network-online.target" "nexus-powerdns-initialize-db.service" ];
           path = with pkgs; [ powerdns postgresql util-linux ];
           serviceConfig = let module-directory = "$RUNTIME_DIRECTORY/modules";
           in {
