@@ -865,11 +865,11 @@
         "utils": "utils_3"
       },
       "locked": {
-        "lastModified": 1720833084,
-        "narHash": "sha256-BP9fU2cv2E8iGJyJ42nXkhEjMzvpzsehMAf45E6fJFo=",
+        "lastModified": 1725901208,
+        "narHash": "sha256-EsoT+7XsGdXMzK7cLSe1MuruBRiLlsozBhFRnnPoYCw=",
         "owner": "fudoniten",
         "repo": "fudo-clojure",
-        "rev": "aa7da4169fbff2f11bac674b0c93ef0b0ef77b0f",
+        "rev": "8547cf3fc4721bcb56b6f8f927be8c9e713014e7",
         "type": "github"
       },
       "original": {
@@ -1249,11 +1249,11 @@
         "utils": "utils_9"
       },
       "locked": {
-        "lastModified": 1725815275,
-        "narHash": "sha256-I6BkxEX7zM0t2qhkH0xDKMmFdQu5BX4+AFsrevGDp44=",
+        "lastModified": 1725901275,
+        "narHash": "sha256-MM5e802e8ZAx8Kb7xQp2rdUaJeeNA1xWH9GngoPRiEU=",
         "owner": "fudoniten",
         "repo": "nexus-client",
-        "rev": "5965287c5986879114a5385f0f9935b0c232d249",
+        "rev": "13f5cbe2bfc59263b904f7e8975a6b8cd090e4b4",
         "type": "github"
       },
       "original": {
@@ -1341,11 +1341,11 @@
         "utils": "utils_21"
       },
       "locked": {
-        "lastModified": 1725863673,
-        "narHash": "sha256-Gnc3pxzLUGFNXslnN56hyYMPeQ1S+1oM9RcI1VDIcTo=",
+        "lastModified": 1725900532,
+        "narHash": "sha256-LZu7cML9u0GBRqsbDsidjpQ99aYVQBEo/IVKrjG6a6M=",
         "owner": "fudoniten",
         "repo": "nexus-server",
-        "rev": "220d19ba93cb8286cd161713c22f2749c42de9a1",
+        "rev": "fbb775626f0b28a860d30943e1f3b48da18d718b",
         "type": "github"
       },
       "original": {
