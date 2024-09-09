@@ -1341,11 +1341,11 @@
         "utils": "utils_21"
       },
       "locked": {
-        "lastModified": 1725904651,
-        "narHash": "sha256-c2Ky+KPT7J0K27cPn72s9zgLYdjJ+XoUZcxnII4RmGE=",
+        "lastModified": 1725905144,
+        "narHash": "sha256-TKInpWOXuMDxzz9EFOmAUPVTw2cj1Alf4p8IpaTCvgE=",
         "owner": "fudoniten",
         "repo": "nexus-server",
-        "rev": "0d9598d157651c0115bfe6aa33c0a48328e34f00",
+        "rev": "5858170a9ab386d13c224154ed55e579df47208c",
         "type": "github"
       },
       "original": {
