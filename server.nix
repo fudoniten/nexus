@@ -4,7 +4,7 @@ packages:
 
 with lib;
 let
-  nexus-server = packages."${pkgs.system}".nexus-server;
+  inherit (pkgs."${pkgs.system}") nexus-server;
   cfg = config.nexus.server;
   db-cfg = config.nexus.database;
 
