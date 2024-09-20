@@ -355,6 +355,41 @@ in {
           };
           unitConfig.ConditionPathExists = [ cfg.database.password-file ];
         };
+
+        nexus-powerdns-increment-serial = {
+          description = "Nexus PowerDNS Serial Incrementer.";
+          after = [ "nexus-powerdns.service" ];
+          path = with pkgs; [ powerdns ];
+          serviceConfig = let
+            genConfig = genPdnsConfig {
+              target-dir = "$RUNTIME_DIRECTORY";
+              inherit (cfg)
+                port listen-addresses secondary-servers debug enable-dnssec;
+              inherit (config.nexus.database) database;
+              db-host = config.nexus.database.host;
+              db-user = cfg.database.user;
+              db-password-file = "$CREDENTIALS_DIRECTORY/db.passwd";
+            };
+          in {
+            ExecStart =
+              pkgs.writeShellScript "nexus-powerdns-increment-serial.sh"
+              (concatStringSep "\n" (mapAttrsToList (domain: _: ''
+                ${genConfig}
+                pdnsutil --config-dir=$RUNTIME_DIRECTORY increase-serial ${domain}
+              '') config.nexus.domains));
+            RuntimeDirectory = "nexus-powerdns";
+            LoadCredential = "db.passwd:${cfg.database.password-file}";
+          };
+        };
+      };
+
+      timers.nexus-powerdns-increment-serial = {
+        wantedBy = [ "nexus-powerdns.service" ];
+        timerConfig = {
+          OnBootSec = "5m";
+          OnUnitActivateSec = "3d";
+          Unit = "nexus-powerdns-increment-serial.service";
+        };
       };
     };
   };
