@@ -373,7 +373,7 @@ in {
           in {
             ExecStart =
               pkgs.writeShellScript "nexus-powerdns-increment-serial.sh"
-              (concatStringSep "\n" (mapAttrsToList (domain: _: ''
+              (concatStringsSep "\n" (mapAttrsToList (domain: _: ''
                 ${genConfig}
                 pdnsutil --config-dir=$RUNTIME_DIRECTORY increase-serial ${domain}
               '') config.nexus.domains));
