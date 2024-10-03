@@ -231,6 +231,7 @@ in {
           description = "Initialize the powerdns database.";
           requiredBy = [ "nexus-powerdns.service" ];
           before = [ "nexus-powerdns.service" ];
+          after = [ "network-online.target" ];
           path = with pkgs; [ postgresql util-linux ];
           environment = {
             PGHOST = db-cfg.host;
