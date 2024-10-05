@@ -363,7 +363,7 @@ in {
 
         nexus-powerdns-increment-serial = {
           description = "Nexus PowerDNS Serial Incrementer.";
-          require = [ "nexus-powerdns.service" ];
+          requires = [ "nexus-powerdns.service" ];
           after = [ "nexus-powerdns.service" ];
           path = with pkgs; [ powerdns ];
           serviceConfig = let
