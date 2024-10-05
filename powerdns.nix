@@ -420,7 +420,7 @@ in {
             zoneCheckScript = secondaryIps: zone:
               let
                 notifyCmds = concatStringsSep ","
-                  (map (secondary: "pdns_notify ${secondaryIp} ${zone}")
+                  (map (secondaryIp: "pdns_notify ${secondaryIp} ${zone}")
                     secondaryIps);
               in pkgs.writeShellScript
               "nexus-powerdns-check-updates-${zone}.sh" ''
