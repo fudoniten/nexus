@@ -235,6 +235,7 @@ in {
           requiredBy = [ "nexus-powerdns.service" ];
           before = [ "nexus-powerdns.service" ];
           after = [ "network-online.target" ];
+          requires = [ "network-online.target" ];
           path = with pkgs; [ postgresql util-linux ];
           environment = {
             PGHOST = db-cfg.host;
@@ -362,6 +363,7 @@ in {
 
         nexus-powerdns-increment-serial = {
           description = "Nexus PowerDNS Serial Incrementer.";
+          require = [ "nexus-powerdns.service" ];
           after = [ "nexus-powerdns.service" ];
           path = with pkgs; [ powerdns ];
           serviceConfig = let

@@ -22,6 +22,6 @@ BEGIN
 END;
 $$LANGUAGE plpgsql;
 
-CREATE TRIGGER update_serial_on_change_trigger
+CREATE OR REPLACE TRIGGER update_serial_on_change_trigger
 AFTER INSERT OR UPDATE OR DELETE ON records
 FOR EACH ROW EXECUTE FUNCTION update_zone_serial_on_change();
