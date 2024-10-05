@@ -378,11 +378,13 @@ in {
             };
           in {
             ExecStart =
-              pkgs.writeShellScript "nexus-powerdns-increment-serial.sh"
-              (concatStringsSep "\n" (mapAttrsToList (domain: _: ''
+              pkgs.writeShellScript "nexus-powerdns-increment-serial.sh" ''
                 ${genConfig}
-                pdnsutil --config-dir=$RUNTIME_DIRECTORY increase-serial ${domain}
-              '') config.nexus.domains));
+                ${concatStringsSep "\n" (mapAttrsToList (domain: _: ''
+                  ${genConfig}
+                  pdnsutil --config-dir=$RUNTIME_DIRECTORY increase-serial ${domain}
+                '') config.nexus.domains)}
+              '';
             RuntimeDirectory = "nexus-powerdns-increment-serial";
             LoadCredential = "db.passwd:${cfg.database.password-file}";
           };
