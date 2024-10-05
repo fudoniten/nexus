@@ -154,6 +154,8 @@ let
     ");"
   ];
 
+  createUpdateSerialTrigger = builtins.readFile ./update-serial-trigger.sql;
+
   mapConcatAttrsToList = f: as: concatLists (mapAttrsToList f as);
 
   initializeDomainSql = domain:
@@ -198,6 +200,7 @@ let
       DO $$
       BEGIN
       ${ensureChallengeTable}
+      ${createUpdateSerialTrigger}
       INSERT INTO domains (name, master, type, notified_serial) SELECT '${domain-name}', '${primaryNameserver.ipv4-address}', 'MASTER', '${
         toString config.instance.build-timestamp
       }' WHERE NOT EXISTS (SELECT * FROM domains WHERE name='${domain-name}');
@@ -378,18 +381,105 @@ in {
                 ${genConfig}
                 pdnsutil --config-dir=$RUNTIME_DIRECTORY increase-serial ${domain}
               '') config.nexus.domains));
-            RuntimeDirectory = "nexus-powerdns";
+            RuntimeDirectory = "nexus-powerdns-increment-serial";
+            LoadCredential = "db.passwd:${cfg.database.password-file}";
+          };
+        };
+
+        nexus-powerdns-notify = {
+          path = with pkgs; [ pdns ];
+          requires = [ "nexus-powerdns.service" ];
+          after = [ "nexus-powerdns.service" ];
+          serviceConfig = {
+            ExecStart = let
+              # NOTE: only notifying v4 IPs, cuz legatus doesn't have IPv6,
+              # and we can assume every secondary has a v4
+              notifyCmds = concatLists (mapAttrsToList (zone: zoneOpts:
+                map (host: "pdns_notify ${getHostIpv4 host} ${zone}")
+                zoneOpts.secondary-dns-servers) servedDomains);
+            in pkgs.writeShellScript "notify-secondary-dns.sh"
+            (concatStringsSep "\n" notifyCmds);
+            Type = "oneshot";
+          };
+        };
+
+        nexus-powerdns-check-updates = {
+          description = "Nexus PowerDNS change detector.";
+          after = [ "nexus-powerdns.service" ];
+          path = with pkgs; [ powerdns ];
+          serviceConfig = let
+            genConfig = genPdnsConfig {
+              target-dir = "$RUNTIME_DIRECTORY";
+              inherit (cfg)
+                port listen-addresses secondary-servers debug enable-dnssec;
+              inherit (config.nexus.database) database;
+              db-host = config.nexus.database.host;
+              db-user = cfg.database.user;
+              db-password-file = "$CREDENTIALS_DIRECTORY/db.passwd";
+            };
+            zoneCheckScript = secondaryIps: zone:
+              let
+                notifyCmds = concatStringsSep ","
+                  (map (secondary: "pdns_notify ${secondaryIp} ${zone}")
+                    secondaryIps);
+              in pkgs.writeShellScript
+              "nexus-powerdns-check-updates-${zone}.sh" ''
+                UPDATE=0
+                NEW=$CACHE_DIRECTORY/new_serial.txt
+                OLD=$CACHE_DIRECTORY/old_serial.txt
+                pdnsutil --config-dir=$RUNTIME_DIRECTORY list-zone ${zone} | grep 'SOA' | awk '{print $7}' > $NEW
+                if [[ ! -f "$OLD" ]]; then
+                   mv $NEW $OLD
+                   UPDATE=1
+                else
+                   NEW_SERIAL=$(cat $NEW)
+                   OLD_SERIAL=$(cat $OLD)
+                   if [ "$NEW_SERIAL" = "$OLD_SERIAL" ]; then
+                      echo "serial unchanged, skipping"
+                   else
+                      echo "serial changed, triggering propagation"
+                      mv $NEW $OLD
+                      UPDATE=1
+                   fi
+                fi
+                if [[ $UPDATE -eq 1 ]]; then
+                   pdnsutil --config-dir=$RUNTIME_DIRECTORY rectify-zone ${zone}
+                   ${notifyCmds}
+                fi
+              '';
+          in {
+            ExecStart = pkgs.writeShellScript "nexus-powerdns-check-updates.sh"
+              (concatStringsSep "\n"
+                (map (zone: "${zoneCheckScript cfg.secondary-servers zone}")
+                  (mapAttrsToList (_: opts: opts.domain-name) cfg.domains)));
+            RuntimeDirectory = "nexus-powerdns-check-updates";
+            CacheDirectory = "nexus-powerdns-check-updates";
             LoadCredential = "db.passwd:${cfg.database.password-file}";
           };
         };
       };
 
-      timers.nexus-powerdns-increment-serial = {
-        wantedBy = [ "nexus-powerdns.service" ];
-        timerConfig = {
-          OnBootSec = "5m";
-          OnUnitActivateSec = "3d";
-          Unit = "nexus-powerdns-increment-serial.service";
+      timers = {
+        nexus-powerdns-increment-serial = {
+          wantedBy = [ "nexus-powerdns.service" ];
+          requires = [ "nexus-powerdns.service" ];
+          after = [ "nexus-powerdns.service" ];
+          timerConfig = {
+            OnBootSec = "5m";
+            OnUnitActivateSec = "1d";
+            Unit = "nexus-powerdns-increment-serial.service";
+          };
+        };
+
+        nexus-powerdns-notify = {
+          wantedBy = [ "nexus-powerdns.service" ];
+          requires = [ "nexus-powerdns.service" ];
+          after = [ "nexus-powerdns.service" ];
+          timerConfig = {
+            OnBootSec = "1m";
+            OnUnitActiveSec = "30m";
+            Unit = "nexus-powerdns-notify.service";
+          };
         };
       };
     };
