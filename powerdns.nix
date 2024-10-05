@@ -411,7 +411,7 @@ in {
         nexus-powerdns-check-updates = {
           description = "Nexus PowerDNS change detector.";
           after = [ "nexus-powerdns.service" ];
-          path = with pkgs; [ powerdns ];
+          path = with pkgs; [ gawk gnugrep powerdns ];
           serviceConfig = let
             genConfig = genPdnsConfig {
               target-dir = "$RUNTIME_DIRECTORY";
