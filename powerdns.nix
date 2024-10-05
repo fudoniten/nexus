@@ -424,7 +424,7 @@ in {
             };
             zoneCheckScript = secondaryIps: zone:
               let
-                notifyCmds = concatStringsSep ","
+                notifyCmds = concatStringsSep "\n"
                   (map (secondaryIp: "pdns_notify ${secondaryIp} ${zone}")
                     secondaryIps);
               in pkgs.writeShellScript
