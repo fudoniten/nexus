@@ -392,11 +392,12 @@ in {
           after = [ "nexus-powerdns.service" ];
           serviceConfig = {
             ExecStart = let
-              # NOTE: only notifying v4 IPs, cuz legatus doesn't have IPv6,
-              # and we can assume every secondary has a v4
-              notifyCmds = concatLists (mapAttrsToList (zone: zoneOpts:
-                map (host: "pdns_notify ${getHostIpv4 host} ${zone}")
-                zoneOpts.secondary-dns-servers) servedDomains);
+              notifyCmds = let
+                zones = mapAttrsToList (_: opts: opts.domain-name)
+                  config.nexus.domains;
+              in concatLists (map (zone:
+                map (ip: "pdns_notify ${ip} ${zone}") cfg.secondary-servers)
+                zones);
             in pkgs.writeShellScript "notify-secondary-dns.sh"
             (concatStringsSep "\n" notifyCmds);
             Type = "oneshot";
