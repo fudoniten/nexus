@@ -1,7 +1,7 @@
 CREATE OR REPLACE FUNCTION update_zone_serial_on_change()
 RETURNS TRIGGER AS $$
 DECLARE
-  zone_id VARCHAR;
+  zone_id int;
 BEGIN
   -- Get the affected zone name from the changed row
   IF TG_OP = 'DELETE' THEN
@@ -11,7 +11,7 @@ BEGIN
   END IF;
 
   UPDATE domains
-  SET serial = serial + 1
+  SET notified_serial = notified_serial + 1
   WHERE id = zone_id;
 
   IF TG_OP = 'DELETE' THEN
