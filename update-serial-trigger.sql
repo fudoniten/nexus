@@ -12,7 +12,7 @@ BEGIN
 
   UPDATE domains
   SET serial = serial + 1
-  WHERE id = zone_name;
+  WHERE id = zone_id;
 
   IF TG_OP = 'DELETE' THEN
      RETURN OLD;
