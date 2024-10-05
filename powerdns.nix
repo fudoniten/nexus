@@ -451,7 +451,8 @@ in {
             ExecStart = pkgs.writeShellScript "nexus-powerdns-check-updates.sh"
               (concatStringsSep "\n"
                 (map (zone: "${zoneCheckScript cfg.secondary-servers zone}")
-                  (mapAttrsToList (_: opts: opts.domain-name) cfg.domains)));
+                  (mapAttrsToList (_: opts: opts.domain-name)
+                    config.nexus.domains)));
             RuntimeDirectory = "nexus-powerdns-check-updates";
             CacheDirectory = "nexus-powerdns-check-updates";
             LoadCredential = "db.passwd:${cfg.database.password-file}";
