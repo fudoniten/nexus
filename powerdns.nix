@@ -467,6 +467,31 @@ in {
             LoadCredential = "db.passwd:${cfg.database.password-file}";
           };
         };
+
+        nexus-clear-challenges = {
+          description = "Periodically clear Nexus challenges.";
+          requires = [ "nexus-powerdns.service" ];
+          after = [ "nexus-powerdns.service" ];
+          path = with pkgs; [ postgresql ];
+          serviceConfig = let
+            cleanupScript =
+              pkgs.writeText "nexus-powerdns-clear-challenges.sql" ''
+                BEGIN;
+                DELETE FROM records WHERE id IN (SELECT record_id FROM challenges WHERE created_at < (CURRENT_DATE - INTERVAL '1 day'));
+                UPDATE challenges SET active=false WHERE NOT EXISTS (SELECT id FROM records WHERE id=challenges.record_id);
+                COMMIT;
+              '';
+          in {
+            ExecStart =
+              pkgs.writeShellScript "nexus-powerdns-clear-challenges.sh" ''
+                export PGPASSWORD=$(cat $CREDENTIALS_DIRECTORY/db.passwd)
+                psql -h ${db-cfg.host} -U ${db-cfg.user} -d ${db-cfg.database} -f ${cleanupScript}
+                unset PGPASSWORD
+              '';
+            RuntimeDirectory = "nexus-powerdns-increment-serial";
+            LoadCredential = "db.passwd:${cfg.database.password-file}";
+          };
+        };
       };
 
       timers = {
@@ -489,6 +514,17 @@ in {
             OnBootSec = "1m";
             OnUnitActiveSec = "30m";
             Unit = "nexus-powerdns-notify.service";
+          };
+        };
+
+        nexus-clear-challenges = {
+          wantedBy = [ "nexus-powerdns.service" ];
+          requires = [ "nexus-powerdns.service" ];
+          after = [ "nexus-powerdns.service" ];
+          timerConfig = {
+            OnBootSec = "1m";
+            OnUnitActivateSec = "1d";
+            Unit = "nexus-clear-challenges.service";
           };
         };
       };
