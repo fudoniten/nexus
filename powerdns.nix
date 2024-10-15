@@ -485,7 +485,7 @@ in {
             ExecStart =
               pkgs.writeShellScript "nexus-powerdns-clear-challenges.sh" ''
                 export PGPASSWORD=$(cat $CREDENTIALS_DIRECTORY/db.passwd)
-                psql -h ${db-cfg.host} -U ${db-cfg.user} -d ${db-cfg.database} -f ${cleanupScript}
+                psql -h ${db-cfg.host} -U ${cfg.database.user} -d ${db-cfg.database} -f ${cleanupScript}
                 unset PGPASSWORD
               '';
             RuntimeDirectory = "nexus-powerdns-increment-serial";
