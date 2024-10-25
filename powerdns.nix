@@ -526,6 +526,17 @@ in {
             Unit = "nexus-clear-challenges.service";
           };
         };
+
+        nexus-powerdns-check-updates = {
+          wantedBy = [ "nexus-powerdns.service" ];
+          requires = [ "nexus-powerdns.service" ];
+          after = [ "nexus-powerdns.service" ];
+          timerConfig = {
+            OnBootSec = "1m";
+            OnUnitActivateSec = "1d";
+            Unit = "nexus-powerdns-check-updates.service";
+          };
+        };
       };
     };
   };
