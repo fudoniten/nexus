@@ -2,7 +2,7 @@
   description = "Nexus Server & Client";
 
   inputs = {
-    nixpkgs.url = "nixpkgs/nixos-24.05";
+    nixpkgs.url = "nixpkgs/nixos-24.11";
     utils.url = "github:numtide/flake-utils";
     nexus-client = {
       url = "github:fudoniten/nexus-client";
