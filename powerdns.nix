@@ -495,18 +495,18 @@ in {
 
       timers = {
         nexus-powerdns-increment-serial = {
-          wantedBy = [ "nexus-powerdns.service" ];
+          wantedBy = [ "timers.target" ];
           requires = [ "nexus-powerdns.service" ];
           after = [ "nexus-powerdns.service" ];
           timerConfig = {
             OnBootSec = "5m";
-            OnUnitActivateSec = "1d";
+            OnUnitActivateSec = "1h";
             Unit = "nexus-powerdns-increment-serial.service";
           };
         };
 
         nexus-powerdns-notify = {
-          wantedBy = [ "nexus-powerdns.service" ];
+          wantedBy = [ "timers.target" ];
           requires = [ "nexus-powerdns.service" ];
           after = [ "nexus-powerdns.service" ];
           timerConfig = {
@@ -517,7 +517,7 @@ in {
         };
 
         nexus-clear-challenges = {
-          wantedBy = [ "nexus-powerdns.service" ];
+          wantedBy = [ "timers.target" ];
           requires = [ "nexus-powerdns.service" ];
           after = [ "nexus-powerdns.service" ];
           timerConfig = {
@@ -528,12 +528,12 @@ in {
         };
 
         nexus-powerdns-check-updates = {
-          wantedBy = [ "nexus-powerdns.service" ];
+          wantedBy = [ "timers.target" ];
           requires = [ "nexus-powerdns.service" ];
           after = [ "nexus-powerdns.service" ];
           timerConfig = {
             OnBootSec = "1m";
-            OnUnitActivateSec = "1d";
+            OnUnitActivateSec = "10m";
             Unit = "nexus-powerdns-check-updates.service";
           };
         };
