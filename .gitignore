@@ -1,11 +1,27 @@
-.DS_Store
-.idea
-*.log
-tmp/
+# Nix build outputs
+result
+result-*
 
+# Clojure
 .cpcache/
 .nrepl-port
+.lsp/
+.clj-kondo/.cache/
 target/
-result
+pom.xml
+pom.xml.asc
+
+# IDE
+.idea/
+*.iml
+.vscode/
+.DS_Store
+
+# Dependency locks
+deps-lock.json
+
+# Logs and temp
+*.log
+tmp/
 .aider*
 .env

@@ -1,37 +1,91 @@
 {
-  description = "Nexus Server & Client";
+  description = "Nexus DDNS System - Monorepo";
 
   inputs = {
     nixpkgs.url = "nixpkgs/nixos-24.11";
     utils.url = "github:numtide/flake-utils";
-    nexus-client = {
-      url = "github:fudoniten/nexus-client";
+    helpers = {
+      url = "github:fudoniten/fudo-nix-helpers";
       inputs.nixpkgs.follows = "nixpkgs";
     };
-    nexus-crypto = {
-      url = "github:fudoniten/nexus-crypto";
-      inputs.nixpkgs.follows = "nixpkgs";
-    };
-    nexus-server = {
-      url = "github:fudoniten/nexus-server";
+    fudo-clojure = {
+      url = "github:fudoniten/fudo-clojure";
       inputs.nixpkgs.follows = "nixpkgs";
     };
   };
 
-  outputs = { self, nixpkgs, utils, ... }@inputs:
+  outputs = { self, nixpkgs, utils, helpers, fudo-clojure, ... }:
+    utils.lib.eachDefaultSystem (system:
+      let
+        pkgs = import nixpkgs { inherit system; };
+        inherit (helpers.packages."${system}") mkClojureBin mkClojureLib;
 
-    utils.lib.eachDefaultSystem (system: {
-      packages = rec {
-        default = nexus-client;
-        nexus-client = inputs.nexus-client.packages."${system}".nexus-client;
-        nexus-keygen = inputs.nexus-crypto.packages."${system}".nexus-keygen;
-        nexus-server = inputs.nexus-server.packages."${system}".nexus-server;
+        # Local Clojure libraries (no longer fetched from git!)
+        cljLibs = {
+          "org.fudo/fudo-clojure" =
+            fudo-clojure.packages."${system}".fudo-clojure;
+          # nexus.crypto is now local - no entry needed!
+        };
+
+      in {
+        packages = rec {
+          default = nexus-client;
+
+          # Crypto library (for external consumers if needed)
+          nexus-crypto = mkClojureLib {
+            name = "org.fudo/nexus.crypto";
+            src = ./.;
+          };
+
+          # Key generation utility
+          nexus-keygen = mkClojureBin {
+            name = "org.fudo/nexus-keygen";
+            primaryNamespace = "nexus.keygen";
+            src = ./.;
+            inherit cljLibs;
+          };
+
+          # DDNS Client
+          nexus-client = mkClojureBin {
+            name = "org.fudo/nexus-client";
+            primaryNamespace = "nexus.client.cli";
+            src = ./.;
+            inherit cljLibs;
+          };
+
+          # DDNS Server
+          nexus-server = mkClojureBin {
+            name = "org.fudo/nexus-server";
+            primaryNamespace = "nexus.server.cli";
+            src = ./.;
+            inherit cljLibs;
+          };
+        };
+
+        devShells = rec {
+          default = updateDeps;
+          updateDeps = pkgs.mkShell {
+            buildInputs = with helpers.packages."${system}";
+              [ (updateClojureDeps { }) ];
+          };
+        };
+
+        # Optional: Add checks for running tests
+        checks = {
+          nexus-tests =
+            pkgs.runCommand "nexus-tests" { buildInputs = [ pkgs.clojure ]; } ''
+              cp -r ${./.} source
+              cd source
+              clojure -M:test
+              touch $out
+            '';
+        };
+      }) // {
+        # NixOS modules now reference packages from same flake
+        nixosModules = {
+          nexus-client = import ./nix/client.nix self.packages;
+          nexus-powerdns = import ./nix/powerdns.nix;
+          nexus-server = import ./nix/server.nix self.packages;
+        };
       };
-    }) // {
-      nixosModules = {
-        nexus-client = import ./client.nix self.packages;
-        nexus-powerdns = import ./powerdns.nix;
-        nexus-server = import ./server.nix self.packages;
-      };
-    };
 }
