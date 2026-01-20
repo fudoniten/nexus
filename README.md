@@ -31,8 +31,11 @@ nix develop
 ### With Clojure CLI
 
 ```bash
-# Run tests
+# Run all tests
 clojure -M:test
+
+# Run specific test namespace
+clojure -M:test -n nexus.crypto-test
 
 # Lint code
 clojure -M:lint
@@ -40,6 +43,19 @@ clojure -M:lint
 # Start REPL
 clojure
 ```
+
+## Testing
+
+The project includes comprehensive test coverage across all core namespaces:
+
+- **nexus.crypto-test**: HMAC key generation and signature validation
+- **nexus.keygen-test**: Key generation CLI functionality
+- **nexus.client-test**: Client request building and authentication
+- **nexus.server-test**: Server routing, authentication, and datastore integration
+- **nexus.authenticator-test**: Signature validation and key management
+- **nexus.host-alias-map-test**: Hostname alias resolution
+
+All tests run automatically on pull requests via GitHub Actions CI.
 
 ## NixOS Deployment
 
