@@ -1,0 +1,61 @@
+name: CI
+
+on:
+  pull_request:
+    branches: [ main, master ]
+  push:
+    branches: [ main, master ]
+  workflow_dispatch:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Install Nix
+        uses: cachix/install-nix-action@v26
+        with:
+          nix_path: nixpkgs=channel:nixos-24.11
+
+      - name: Setup Nix cache
+        uses: cachix/cachix-action@v14
+        with:
+          name: nexus
+          authToken: '${{ secrets.CACHIX_AUTH_TOKEN }}'
+          skipPush: ${{ github.event_name == 'pull_request' }}
+
+      - name: Check flake
+        run: nix flake check --show-trace
+
+      - name: Run tests
+        run: nix develop --command clojure -M:test
+
+      - name: Build nexus-crypto library
+        run: nix build .#nexus-crypto --print-build-logs
+
+      - name: Build nexus-keygen
+        run: nix build .#nexus-keygen --print-build-logs
+
+      - name: Build nexus-client  
+        run: nix build .#nexus-client --print-build-logs
+
+      - name: Build nexus-server
+        run: nix build .#nexus-server --print-build-logs
+
+  lint:
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Install Nix
+        uses: cachix/install-nix-action@v26
+        with:
+          nix_path: nixpkgs=channel:nixos-24.11
+
+      - name: Run clj-kondo
+        run: nix develop --command clojure -M:lint
