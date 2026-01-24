@@ -18,13 +18,13 @@
     utils.lib.eachDefaultSystem (system:
       let
         pkgs = import nixpkgs { inherit system; };
-        inherit (helpers.packages."${system}") mkClojureBin mkClojureLib;
+        inherit (helpers.packages."${system}")
+          mkClojureBin mkClojureLib mkClojureTests;
 
         # Local Clojure libraries (no longer fetched from git!)
         cljLibs = {
           "org.fudo/fudo-clojure" =
             fudo-clojure.packages."${system}".fudo-clojure;
-          # nexus.crypto is now local - no entry needed!
         };
 
       in {
@@ -64,29 +64,31 @@
 
         devShells = rec {
           default = updateDeps;
+
+          # Update deps-lock.json (without test dependencies)
           updateDeps = pkgs.mkShell {
             buildInputs = with helpers.packages."${system}";
-              [ (updateClojureDeps { }) ];
+              [ (updateClojureDeps { deps = cljLibs; }) ];
+          };
+
+          # Update deps-lock.json including test dependencies
+          updateDepsWithTests = pkgs.mkShell {
+            buildInputs = with helpers.packages."${system}";
+              [
+                (updateClojureDeps {
+                  deps = cljLibs;
+                  aliases = [ "test" ];
+                })
+              ];
           };
         };
-        # Run tests with eftest
+        # Run tests with eftest using deps-lock.json
         checks = {
-          nexus-tests = pkgs.stdenv.mkDerivation {
-            name = "nexus-tests";
+          nexus-tests = mkClojureTests {
+            name = "nexus";
             src = ./.;
-
-            buildInputs = [ pkgs.clojure ];
-
-            buildPhase = ''
-              export HOME=$TMPDIR
-
-              # Run tests with eftest (dependencies from deps-lock.json)
-              clojure -M:test
-            '';
-
-            installPhase = ''
-              touch $out
-            '';
+            testAlias = "test";
+            inherit cljLibs;
           };
         };
       }) // {
