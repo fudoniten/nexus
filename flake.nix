@@ -2,7 +2,7 @@
   description = "Nexus DDNS System - Monorepo";
 
   inputs = {
-    nixpkgs.url = "nixpkgs/nixos-24.11";
+    nixpkgs.url = "nixpkgs/nixos-25.11";
     utils.url = "github:numtide/flake-utils";
     helpers = {
       url = "github:fudoniten/fudo-nix-helpers";
