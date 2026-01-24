@@ -2,13 +2,6 @@
   "lock-version": 4,
   "git-deps": [
     {
-      "lib": "io.github.cognitect-labs/test-runner",
-      "url": "https://github.com/cognitect-labs/test-runner.git",
-      "rev": "dfb30dd6605cb6c0efc275e1df1736f6e90d4d73",
-      "git-dir": "https/github.com/cognitect-labs/test-runner",
-      "hash": "sha256-PUNd+dHJNPTKno59YI27wpehyULYPvSyCQDjVIadKJ4="
-    },
-    {
       "lib": "org.fudo/fudo-clojure",
       "url": "https://github.com/fudoniten/fudo-clojure.git",
       "rev": "aa7da4169fbff2f11bac674b0c93ef0b0ef77b0f",
@@ -668,6 +661,16 @@
       "hash": "sha256-2OgLA0KFMl6QX1RkmhWYtoe5pKmaOk9LlO7TWXyyEEg="
     },
     {
+      "mvn-path": "eftest/eftest/0.6.0/eftest-0.6.0.jar",
+      "mvn-repo": "https://repo.clojars.org/",
+      "hash": "sha256-QBGyPRPUm17lfwyjysfU6g3HYgHenF4yMISTLBZoess="
+    },
+    {
+      "mvn-path": "eftest/eftest/0.6.0/eftest-0.6.0.pom",
+      "mvn-repo": "https://repo.clojars.org/",
+      "hash": "sha256-eJ8hho5Ga3EnY7cvzc/0bLL0GuSl5pwXbLnSmo4dNxE="
+    },
+    {
       "mvn-path": "expound/expound/0.9.0/expound-0.9.0.jar",
       "mvn-repo": "https://repo.clojars.org/",
       "hash": "sha256-1qNyYJkY4DUb+mqL1pPRi8GZ6Lp6r67BHola+uAY+Vw="
@@ -686,6 +689,16 @@
       "mvn-path": "fipp/fipp/0.6.26/fipp-0.6.26.pom",
       "mvn-repo": "https://repo.clojars.org/",
       "hash": "sha256-p+xjV7gTIRMv0HwvV+/rAhFEFVlDY9g6FDE6GU9fVTU="
+    },
+    {
+      "mvn-path": "io/aviso/pretty/1.3/pretty-1.3.jar",
+      "mvn-repo": "https://repo.clojars.org/",
+      "hash": "sha256-5ClQZQYtl9sKWx1bbBBNzSewY2mX52WIs/LV2Ok7De0="
+    },
+    {
+      "mvn-path": "io/aviso/pretty/1.3/pretty-1.3.pom",
+      "mvn-repo": "https://repo.clojars.org/",
+      "hash": "sha256-dyAywoO6ij8DkLveWo5XTVm+63U4/BMhBXQMDrRrSUg="
     },
     {
       "mvn-path": "io/dropwizard/metrics/metrics-core/3.2.2/metrics-core-3.2.2.jar",
@@ -1138,6 +1151,16 @@
       "hash": "sha256-fZx9VV7NTYz2wfh9asYEg1KdWQ9MDhKlkSLJ1QvWhXI="
     },
     {
+      "mvn-path": "mvxcvi/arrangement/2.1.0/arrangement-2.1.0.jar",
+      "mvn-repo": "https://repo.clojars.org/",
+      "hash": "sha256-83JROF0iDfiVHmjVJVq7UZetvL2PxrPT/KhyojOfOcg="
+    },
+    {
+      "mvn-path": "mvxcvi/arrangement/2.1.0/arrangement-2.1.0.pom",
+      "mvn-repo": "https://repo.clojars.org/",
+      "hash": "sha256-fWiMhmYYFAo78Am00FcK7acJA0h7dlH7VNBHf5TT2Is="
+    },
+    {
       "mvn-path": "mvxcvi/puget/1.1.2/puget-1.1.2.jar",
       "mvn-repo": "https://repo.clojars.org/",
       "hash": "sha256-7i5fjiJhNogHcc2ZaD1NsjU70gSF++gh9re+jOZmRRU="
@@ -1146,6 +1169,16 @@
       "mvn-path": "mvxcvi/puget/1.1.2/puget-1.1.2.pom",
       "mvn-repo": "https://repo.clojars.org/",
       "hash": "sha256-LjYHVXDmCU2iBMeOwiacuvmPvMJ8uOS4n973O47Br7s="
+    },
+    {
+      "mvn-path": "mvxcvi/puget/1.3.4/puget-1.3.4.jar",
+      "mvn-repo": "https://repo.clojars.org/",
+      "hash": "sha256-Bu0TfUPBWPsjyG/hjytgXL9nWEiVJrbGESw7NCgYuks="
+    },
+    {
+      "mvn-path": "mvxcvi/puget/1.3.4/puget-1.3.4.pom",
+      "mvn-repo": "https://repo.clojars.org/",
+      "hash": "sha256-hw5t6WcDDKQ06fIaNj+TyeHydP+0cihmxL+m9pz1PpA="
     },
     {
       "mvn-path": "net/java/jvnet-parent/1/jvnet-parent-1.pom",
@@ -1721,6 +1754,16 @@
       "mvn-path": "org/clojure/clojure/1.12.0/clojure-1.12.0.pom",
       "mvn-repo": "https://repo1.maven.org/maven2/",
       "hash": "sha256-KfRiqonLl2RXWEGKXwjUwagrc1yW569JgX0WqpuQgVA="
+    },
+    {
+      "mvn-path": "org/clojure/clojure/1.12.3/clojure-1.12.3.jar",
+      "mvn-repo": "https://repo1.maven.org/maven2/",
+      "hash": "sha256-yyoaPbHCzXbvT6SlRdWmXxCxtIt/dnLwoQn1R28FcWY="
+    },
+    {
+      "mvn-path": "org/clojure/clojure/1.12.3/clojure-1.12.3.pom",
+      "mvn-repo": "https://repo1.maven.org/maven2/",
+      "hash": "sha256-q2CmyyuMxXyG21ECte4p8hWsg8/20wEblV+fxb5dAZ0="
     },
     {
       "mvn-path": "org/clojure/core.async/1.6.673/core.async-1.6.673.jar",
@@ -2661,6 +2704,16 @@
       "mvn-path": "prismatic/schema/1.1.12/schema-1.1.12.pom",
       "mvn-repo": "https://repo.clojars.org/",
       "hash": "sha256-bUkp9AkJtNLYxBjJekPaQnvJQSp5zz61OPFbpxTCJSo="
+    },
+    {
+      "mvn-path": "progrock/progrock/0.1.2/progrock-0.1.2.jar",
+      "mvn-repo": "https://repo.clojars.org/",
+      "hash": "sha256-Aln+tbAkduswC31k5UPrVM5Kw9yuU5gxDxZCdo/VPyo="
+    },
+    {
+      "mvn-path": "progrock/progrock/0.1.2/progrock-0.1.2.pom",
+      "mvn-repo": "https://repo.clojars.org/",
+      "hash": "sha256-6rULcjyeeEkPWDy5n7HUa8KA/xH9X4Ujub7XamTq8CM="
     },
     {
       "mvn-path": "riddley/riddley/0.1.12/riddley-0.1.12.jar",

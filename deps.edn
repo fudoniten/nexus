@@ -2,7 +2,7 @@
  
  :deps {
         ;; Core Clojure
-        org.clojure/clojure {:mvn/version "1.12.0"}
+        org.clojure/clojure {:mvn/version "1.12.3"}
         org.clojure/core.async {:mvn/version "1.6.681"}  ; Use server's newer version
         org.clojure/data.json {:mvn/version "2.5.0"}     ; Use server's newer version
         slingshot/slingshot {:mvn/version "0.12.2"}
@@ -38,14 +38,10 @@
            :test {
                   :extra-paths ["test"]
                   :extra-deps {
-                               io.github.cognitect-labs/test-runner {
-                                                                     :git/url "https://github.com/cognitect-labs/test-runner.git"
-                                                                     :sha "dfb30dd6605cb6c0efc275e1df1736f6e90d4d73"
-                                                                     }
+                               eftest/eftest {:mvn/version "0.6.0"}
                                org.clojure/test.check {:mvn/version "1.1.1"}
                                }
-                  :main-opts ["-m" "cognitect.test-runner"]
-                  :exec-fn cognitect.test-runner.api/test
+                  :main-opts ["-e" "(require,'eftest.runner)(eftest.runner/run-tests,(eftest.runner/find-tests,\"test\"))"]
                   }
            
            :lint {

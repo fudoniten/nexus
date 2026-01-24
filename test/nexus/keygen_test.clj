@@ -12,19 +12,19 @@
 
 (deftest test-write-key
   (let [key (crypto/generate-key "HmacSHA512")
-        filename "test-key.txt"]
+        filename "test-write-key.txt"]
     (testing "Writing key to file"
       (try
         (keygen/write-key {:key key :filename filename})
         (is (.exists (io/file filename)))
         (finally
-          (io/delete-file filename))))))
+          (io/delete-file filename true))))))
 
 (deftest test-main
   (testing "Main function with verbose flag"
     (try
       (with-out-str
-        (keygen/-main "-v" "-a" "HmacSHA512" "test-key.txt"))
-      (is (.exists (io/file "test-key.txt")))
+        (keygen/-main "-v" "-a" "HmacSHA512" "test-main-key.txt"))
+      (is (.exists (io/file "test-main-key.txt")))
       (finally
-        (io/delete-file "test-key.txt")))))
+        (io/delete-file "test-main-key.txt" true)))))

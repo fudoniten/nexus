@@ -69,16 +69,25 @@
               [ (updateClojureDeps { }) ];
           };
         };
-
-        # Optional: Add checks for running tests
+        # Run tests with eftest
         checks = {
-          nexus-tests =
-            pkgs.runCommand "nexus-tests" { buildInputs = [ pkgs.clojure ]; } ''
-              cp -r ${./.} source
-              cd source
+          nexus-tests = pkgs.stdenv.mkDerivation {
+            name = "nexus-tests";
+            src = ./.;
+
+            buildInputs = [ pkgs.clojure ];
+
+            buildPhase = ''
+              export HOME=$TMPDIR
+
+              # Run tests with eftest (dependencies from deps-lock.json)
               clojure -M:test
+            '';
+
+            installPhase = ''
               touch $out
             '';
+          };
         };
       }) // {
         # NixOS modules now reference packages from same flake

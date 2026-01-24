@@ -242,6 +242,4 @@
                           (ring/body (json/write-str "1.1.1.1"))
                           (sign-request (:host1 host-keys))))
                  :status)
-             401)))))
-
-(run-tests)
+              401)))))
