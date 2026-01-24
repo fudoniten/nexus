@@ -84,7 +84,7 @@
         # NixOS modules now reference packages from same flake
         nixosModules = {
           nexus-client = import ./nix/client.nix self.packages;
-          nexus-pdns = import ./nix/powerdns.nix;
+          nexus-powerdns = import ./nix/powerdns.nix;
           nexus-server = import ./nix/server.nix self.packages;
         };
       };

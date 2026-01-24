@@ -70,7 +70,7 @@ Add to your flake inputs:
       modules = [
         nexus.nixosModules.nexus-client
         nexus.nixosModules.nexus-server
-        nexus.nixosModules.nexus-pdns
+        nexus.nixosModules.nexus-powerdns
         
         # Your configuration
         {
