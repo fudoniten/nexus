@@ -17,9 +17,6 @@ pom.xml.asc
 .vscode/
 .DS_Store
 
-# Dependency locks
-deps-lock.json
-
 # Logs and temp
 *.log
 tmp/

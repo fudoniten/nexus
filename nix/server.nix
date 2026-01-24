@@ -48,7 +48,7 @@ in {
         ExecStartPre = let
           ncCmd =
             "${pkgs.netcat}/bin/nc -z ${db-cfg.host} ${toString db-cfg.port}";
-        in pkgs.writeShellScript "powerdns-initialize-db-prep.sh"
+        in pkgs.writeShellScript "pdns-initialize-db-prep.sh"
         "${pkgs.bash}/bin/bash -c 'until ${ncCmd}; do sleep 1; done;'";
 
         LoadCredential = [

@@ -171,13 +171,13 @@ in {
         user = mkOption {
           type = str;
           description = "User as which to connect to the database.";
-          default = "nexus_powerdns";
+          default = "nexus_pdns";
         };
 
         password-file = mkOption {
           type = str;
           description = "File containing database password for <user>.";
-          default = "nexus_powerdns";
+          default = "nexus_pdns";
         };
       };
     };

@@ -316,7 +316,7 @@ in {
                 echo "PowerDNS database schema already initialized, skipping"
               else
                 echo "Initializing PowerDNS database schema"
-                psql --dbname=${db-cfg.database} -U ${cfg.database.user} -f ${pkgs.powerdns}/share/doc/pdns/schema.pgsql.sql
+                psql --dbname=${db-cfg.database} -U ${cfg.database.user} -f ${pkgs.pdns}/share/doc/pdns/schema.pgsql.sql
               fi
 
               # Initialize all configured domains
@@ -340,7 +340,7 @@ in {
           wantedBy = [ "multi-user.target" ];
           requires =
             [ "network-online.target" "nexus-powerdns-initialize-db.service" ];
-          path = with pkgs; [ powerdns postgresql util-linux ];
+          path = with pkgs; [ pdns postgresql util-linux ];
           serviceConfig = let module-directory = "$RUNTIME_DIRECTORY/modules";
           in {
             # Wait for database to be available
@@ -365,21 +365,21 @@ in {
               # Secure zones with DNSSEC if enabled
               secureZones = let
                 signDomain = domain: ''
-                  DNSINFO=$(${pkgs.powerdns}/bin/pdnsutil --config-dir=$RUNTIME_DIRECTORY show-zone ${domain})
+                  DNSINFO=$(${pkgs.pdns}/bin/pdnsutil --config-dir=$RUNTIME_DIRECTORY show-zone ${domain})
                   if [[ "$DNSINFO" =~ "No such zone in the database" ]]; then
                     echo "WARNING: Zone ${domain} does not exist in PowerDNS database"
                     logger "WARNING: Zone ${domain} does not exist in PowerDNS database"
                   elif [[ "$DNSINFO" =~ "Zone is not actively secured" ]]; then
                     echo "Securing zone ${domain} with DNSSEC"
                     logger "Securing zone ${domain} with DNSSEC"
-                    ${pkgs.powerdns}/bin/pdnsutil --config-dir=$RUNTIME_DIRECTORY secure-zone ${domain}
+                    ${pkgs.pdns}/bin/pdnsutil --config-dir=$RUNTIME_DIRECTORY secure-zone ${domain}
                   elif [[ "$DNSINFO" =~ "No keys for zone" ]]; then
                     echo "Generating DNSSEC keys for zone ${domain}"
                     logger "Generating DNSSEC keys for zone ${domain}"
-                    ${pkgs.powerdns}/bin/pdnsutil --config-dir=$RUNTIME_DIRECTORY secure-zone ${domain}
+                    ${pkgs.pdns}/bin/pdnsutil --config-dir=$RUNTIME_DIRECTORY secure-zone ${domain}
                   fi
                   # Rectify zone to ensure DNSSEC signatures are current
-                  ${pkgs.powerdns}/bin/pdnsutil --config-dir=$RUNTIME_DIRECTORY rectify-zone ${domain}
+                  ${pkgs.pdns}/bin/pdnsutil --config-dir=$RUNTIME_DIRECTORY rectify-zone ${domain}
                 '';
               in pkgs.writeShellScript "nexus-powerdns-secure-zones.sh" ''
                 export HOME=$RUNTIME_DIRECTORY
@@ -389,7 +389,7 @@ in {
 
               # PowerDNS launch command
               launchCmd = concatStringsSep " " ([
-                "${pkgs.powerdns}/bin/pdns_server"
+                "${pkgs.pdns}/bin/pdns_server"
                 "--daemon=no"
                 "--guardian=yes"
                 ''--config-dir="$RUNTIME_DIRECTORY"''
@@ -418,7 +418,7 @@ in {
           description = "Manually increment PowerDNS zone serials";
           requires = [ "nexus-powerdns.service" ];
           after = [ "nexus-powerdns.service" ];
-          path = with pkgs; [ powerdns ];
+          path = with pkgs; [ pdns ];
           serviceConfig = let
             genConfig = genPdnsConfig {
               target-dir = "$RUNTIME_DIRECTORY";
@@ -479,7 +479,7 @@ in {
           description = "Detect PowerDNS zone changes and notify secondaries";
           after = [ "nexus-powerdns.service" ];
           requires = [ "nexus-powerdns.service" ];
-          path = with pkgs; [ gawk gnugrep powerdns ];
+          path = with pkgs; [ gawk gnugrep pdns ];
           serviceConfig = let
             genConfig = genPdnsConfig {
               target-dir = "$RUNTIME_DIRECTORY";
