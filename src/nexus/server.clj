@@ -127,6 +127,55 @@
        {:status 500
         :body "Internal server error"}))))
 
+(defn- set-host-batch
+  "Handler for batch updating multiple record types for a host"
+  [store]
+  (fn [{:keys [payload]
+       {:keys [host domain]} :path-params}]
+    (try+
+     (let [errors (atom [])
+           validated-data (atom {})]
+       ;; Validate IPv4 if present
+       (when-let [ipv4-str (:ipv4 payload)]
+         (try
+           (let [ip (ip/from-string ipv4-str)]
+             (if (ip/ipv4? ip)
+               (swap! validated-data assoc :ipv4 ip)
+               (swap! errors conj (format "not a valid IPv4: %s" ipv4-str))))
+           (catch IllegalArgumentException _
+             (swap! errors conj (format "failed to parse IPv4: %s" ipv4-str)))))
+       
+       ;; Validate IPv6 if present
+       (when-let [ipv6-str (:ipv6 payload)]
+         (try
+           (let [ip (ip/from-string ipv6-str)]
+             (if (ip/ipv6? ip)
+               (swap! validated-data assoc :ipv6 ip)
+               (swap! errors conj (format "not a valid IPv6: %s" ipv6-str))))
+           (catch IllegalArgumentException _
+             (swap! errors conj (format "failed to parse IPv6: %s" ipv6-str)))))
+       
+       ;; Validate SSHFPs if present
+       (when-let [sshfps (:sshfps payload)]
+         (if (every? valid-sshfp? sshfps)
+           (swap! validated-data assoc :sshfps sshfps)
+           (swap! errors conj (str "invalid sshfp records: "
+                                   (filter (comp not valid-sshfp?) sshfps)))))
+       
+       ;; Return errors if any validation failed
+       (if (seq @errors)
+         {:status 400 :body {:errors @errors}}
+         ;; Otherwise perform batch update
+         (do (store/set-host-batch store domain host @validated-data)
+             {:status 200 :body @validated-data})))
+     (catch Exception e
+       (log/log-error "set-host-batch-failed" e
+                     {:domain domain
+                      :host host
+                      :payload payload})
+       {:status 500
+        :body "Internal server error"}))))
+
 (defn- get-challenge-records
   "Handler for listing ACME challenge records for a domain"
   [store]
@@ -319,13 +368,14 @@
                                                   (make-timing-validator max-delay)]}
                        ["/:challenge-id" {:put    {:handler (create-challenge-record data-store)}
                                           :delete {:handler (delete-challenge-record data-store)}}]]
-                      ["/host" {:middleware [(make-host-signature-authenticator verbose host-authenticator host-mapper)
-                                             (make-timing-validator max-delay)]}
-                       ["/:host"
-                        ["/ipv4"   {:put {:handler (set-host-ipv4 data-store)}
-                                    :get {:handler (get-host-ipv4 data-store)}}]
-                        ["/ipv6"   {:put {:handler (set-host-ipv6 data-store)}
-                                    :get {:handler (get-host-ipv6 data-store)}}]
-                        ["/sshfps" {:put {:handler (set-host-sshfps data-store)}
-                                    :get {:handler (get-host-sshfps data-store)}}]]]]]]])
+                       ["/host" {:middleware [(make-host-signature-authenticator verbose host-authenticator host-mapper)
+                                              (make-timing-validator max-delay)]}
+                        ["/:host"
+                         ["/ipv4"   {:put {:handler (set-host-ipv4 data-store)}
+                                     :get {:handler (get-host-ipv4 data-store)}}]
+                         ["/ipv6"   {:put {:handler (set-host-ipv6 data-store)}
+                                     :get {:handler (get-host-ipv6 data-store)}}]
+                         ["/sshfps" {:put {:handler (set-host-sshfps data-store)}
+                                     :get {:handler (get-host-sshfps data-store)}}]
+                         ["/batch"  {:put {:handler (set-host-batch data-store)}}]]]]]]])
      (ring/create-default-handler))))

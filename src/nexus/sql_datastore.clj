@@ -407,6 +407,21 @@
   (get-host-sshfps [self domain host]
     (get-host-sshfps-impl self {:domain domain :host host}))
 
+  (set-host-batch [self domain host batch-data]
+    (when verbose
+      (println (format "batch update for %s.%s: %s"
+                       host domain batch-data)))
+    (jdbc/with-transaction [tx (jdbc/get-connection (:datasource self))]
+      (let [params {:domain domain :host host}
+            results {}]
+        (when-let [ipv4 (:ipv4 batch-data)]
+          (set-host-ipv4-impl self params ipv4))
+        (when-let [ipv6 (:ipv6 batch-data)]
+          (set-host-ipv6-impl self params ipv6))
+        (when-let [sshfps (:sshfps batch-data)]
+          (set-host-sshpfs-impl self params sshfps))
+        batch-data)))
+
   (get-challenge-records [self domain]
     (when verbose
       (println (format "fetching challenge records for domain %s" domain)))

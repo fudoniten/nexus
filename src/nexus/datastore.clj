@@ -32,6 +32,11 @@
     [_ domain host]
     "Get the SSHFP records for a host in a domain")
   
+  (set-host-batch
+    [_ domain host batch-data]
+    "Set multiple record types for a host in a single transaction.
+     batch-data is a map that may contain :ipv4, :ipv6, and/or :sshfps keys")
+  
   (get-challenge-records
     [_ domain]
     "Get all active ACME challenge records for a domain")
