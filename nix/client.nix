@@ -37,6 +37,10 @@ in {
             domainList =
               concatStringsSep "," (map ({ domain, ... }: domain) domains);
             serverList = concatStringsSep "," cfg.servers;
+            aliasList = concatMap ({ domain, aliases, ... }:
+              map (alias: "${alias}:${domain}") aliases) domains;
+            aliasFlags =
+              concatStringsSep " " (map (a: "--aliases=${a}") aliasList);
             sshfpFlags = if hasSshfps then
               "--sshfp-files=$RUNTIME_DIRECTORY/${hostname}-sshfps.txt"
             else
@@ -65,6 +69,7 @@ in {
                   ${optionalString cfg.ipv6 "--ipv6"} \
                   ${optionalString (type == "private") "--private"} \
                   ${optionalString (type == "tailscale") "--tailscale"} \
+                  ${aliasFlags} \
                   ${sshfpFlags} \
                   ${optionalString cfg.verbose "--verbose"}
               '';

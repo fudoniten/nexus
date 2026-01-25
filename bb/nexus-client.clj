@@ -205,13 +205,26 @@
     (let [config (assoc opts
                         :server server
                         :domain domain)
-          response (send-batch-update! config current-state)]
-      (when (:verbose opts)
-        (println (format "Response from %s for %s.%s: status=%d"
-                         server (:hostname opts) domain (:status response))))
-      (when (not= 200 (:status response))
-        (println (format "ERROR: Failed to update %s.%s on %s: %s"
-                         (:hostname opts) domain server (:body response)))))))
+          ;; Get aliases for this domain
+          aliases (get-in opts [:aliases domain] [])
+          ;; Report for main hostname
+          _ (let [response (send-batch-update! config current-state)]
+              (when (:verbose opts)
+                (println (format "Response from %s for %s.%s: status=%d"
+                                 server (:hostname opts) domain (:status response))))
+              (when (not= 200 (:status response))
+                (println (format "ERROR: Failed to update %s.%s on %s: %s"
+                                 (:hostname opts) domain server (:body response)))))]
+      ;; Report for each alias
+      (doseq [alias aliases]
+        (let [alias-config (assoc config :hostname alias)
+              response (send-batch-update! alias-config current-state)]
+          (when (:verbose opts)
+            (println (format "Response from %s for %s.%s (alias): status=%d"
+                             server alias domain (:status response))))
+          (when (not= 200 (:status response))
+            (println (format "ERROR: Failed to update alias %s.%s on %s: %s"
+                             alias domain server (:body response)))))))))
 
 (defn update-if-changed! [opts]
   "Update DNS records only if state has changed"
@@ -231,11 +244,12 @@
         (println "No changes detected, skipping update")))))
 
 (defn parse-aliases [alias-strs]
-  "Parse alias strings in format 'alias:domain' into a map"
-  (into {}
-        (comp (map #(str/split % #":"))
-              (map (fn [[alias domain]] [domain (or alias [])])))
-        alias-strs))
+  "Parse alias strings in format 'alias:domain' into a map of {domain [alias1 alias2...]}"
+  (reduce (fn [acc alias-str]
+            (let [[alias domain] (str/split alias-str #":")]
+              (update acc domain (fnil conj []) alias)))
+          {}
+          alias-strs))
 
 ;; --- CLI ---
 
@@ -246,6 +260,9 @@
              :coerce []}
    :servers {:desc "DDNS servers (comma-separated or multiple -s flags)"
              :coerce []}
+   :aliases {:desc "Aliases in format 'alias:domain' (can specify multiple)"
+             :coerce []
+             :default []}
    :port {:desc "Server port"
           :default 80
           :coerce :int}
@@ -308,9 +325,11 @@
           ip-type (cond (:tailscale opts) :tailscale
                         (:private opts) :private
                         :else :public)
+          aliases-map (parse-aliases (:aliases opts))
           final-opts (assoc opts
                             :hmac-key hmac-key
-                            :ip-type ip-type)]
+                            :ip-type ip-type
+                            :aliases aliases-map)]
       (try
         (update-if-changed! final-opts)
         (System/exit 0)
