@@ -1,0 +1,35 @@
+[Unit]
+Description=Nexus DDNS Client - One-shot update for %i
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+DynamicUser=true
+StateDirectory=nexus-client
+RuntimeDirectory=nexus-client-%i
+CacheDirectory=nexus-client-%i
+
+# Credentials will be loaded from system configuration
+# LoadCredential=hmac.key:/path/to/hmac.key
+# Environment will be set by NixOS module or systemd drop-in:
+# Environment="NEXUS_HOSTNAME=myhost"
+# Environment="NEXUS_DOMAINS=example.com,example.org"
+# Environment="NEXUS_SERVERS=dns1.example.com,dns2.example.com"
+# Environment="NEXUS_PORT=443"
+# Environment="NEXUS_TYPE=%i"  # public, private, or tailscale
+
+ExecStart=/usr/bin/env bb /path/to/nexus-client.clj \
+  --hostname=${NEXUS_HOSTNAME} \
+  --domains=${NEXUS_DOMAINS} \
+  --servers=${NEXUS_SERVERS} \
+  --port=${NEXUS_PORT} \
+  --key-file=${CREDENTIALS_DIRECTORY}/hmac.key \
+  ${NEXUS_IPV4_FLAG} \
+  ${NEXUS_IPV6_FLAG} \
+  ${NEXUS_TYPE_FLAG} \
+  ${NEXUS_SSHFP_FLAGS} \
+  ${NEXUS_VERBOSE_FLAG}
+
+[Install]
+WantedBy=multi-user.target

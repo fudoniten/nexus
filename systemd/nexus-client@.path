@@ -1,0 +1,20 @@
+[Unit]
+Description=Nexus DDNS Client Path Monitor - Trigger on network changes for %i
+Requires=nexus-client@%i.service
+
+[Path]
+# Monitor /sys/class/net for any changes to network interfaces
+# This will trigger on interface up/down, new interfaces, etc.
+PathModified=/sys/class/net
+
+# Also monitor network state directory
+PathModified=/run/systemd/netif/links
+PathModified=/run/systemd/netif/leases
+
+# Debounce rapid changes - only trigger after 10 seconds of stability
+# This prevents rapid-fire triggers during network instability
+TriggerLimitIntervalSec=30s
+TriggerLimitBurst=1
+
+[Install]
+WantedBy=multi-user.target

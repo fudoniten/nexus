@@ -1,0 +1,16 @@
+[Unit]
+Description=Nexus DDNS Client Timer - Periodic backup trigger for %i
+Requires=nexus-client@%i.service
+
+[Timer]
+# Run on boot (5 minutes after network is up)
+OnBootSec=5min
+
+# Run every hour as backup (in case network events are missed)
+OnUnitActiveSec=1h
+
+# Randomize timer to avoid thundering herd if multiple hosts use same interval
+RandomizedDelaySec=5min
+
+[Install]
+WantedBy=timers.target
