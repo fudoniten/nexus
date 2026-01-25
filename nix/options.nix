@@ -324,12 +324,6 @@ in {
         default = { };
       };
 
-      delay-seconds = mkOption {
-        type = int;
-        description = "Seconds to wait before reporting IP addresses.";
-        default = 60;
-      };
-
       hmac-key-file = mkOption {
         type = str;
         description = "Path (on local host) of file containing HMAC key.";
