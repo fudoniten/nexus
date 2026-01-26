@@ -50,7 +50,7 @@
                                 eftest/eftest {:mvn/version "0.6.0"}
                                 org.clojure/test.check {:mvn/version "1.1.1"}
                                 }
-                   :main-opts ["-e" "(require,'eftest.runner)(eftest.runner/run-tests,(eftest.runner/find-tests,\"test\",{:filter,(fn[m](-> m :ns ns-name str (clojure.string/includes? \"integration\")))}))"]
+                   :main-opts ["-m" "nexus.integration-test"]
                    }
             
             :lint {

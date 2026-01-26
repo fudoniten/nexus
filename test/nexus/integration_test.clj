@@ -4,14 +4,17 @@
    These tests use a real PostgreSQL database to verify end-to-end
    functionality including schema initialization, HTTP request handling,
    HMAC authentication, and database persistence."
-  (:require [clojure.test :refer [deftest testing is use-fixtures]]
+  (:require [clojure.test :refer [deftest testing is use-fixtures run-tests]]
             [clojure.java.io :as io]
             [clojure.data.json :as json]
+            [clojure.string]
             [nexus.server :as server]
             [nexus.crypto :as crypto]
             [nexus.sql-datastore :as store]
+            [nexus.host-alias-map :as host-map]
             [ring.mock.request :as mock]
-            [next.jdbc :as jdbc]))
+            [next.jdbc :as jdbc]
+            [eftest.runner :as eftest]))
 
 ;; Test configuration
 (def ^:dynamic *db-config* nil)
@@ -115,7 +118,7 @@
              {:datastore datastore
               :host-keys test-keys
               :challenge-keys {}
-              :host-alias-map {}
+              :host-alias-map (host-map/->HostAliasMap {})
               :verbose false})]
     
     ;; Initialize database schema
@@ -336,3 +339,17 @@
                              :domains/notified_serial)]
           (is (> new-serial initial-serial)
               "SOA serial should increment after record update"))))))
+
+(defn -main
+  "Run integration tests"
+  [& args]
+  (let [all-tests (eftest/find-tests "test")
+        integration-tests (filter (fn [test-var]
+                                     (clojure.string/includes?
+                                      (str (-> test-var meta :ns ns-name))
+                                      "integration"))
+                                   all-tests)
+        summary (eftest/run-tests integration-tests)]
+    (System/exit (if (zero? (+ (:fail summary) (:error summary)))
+                   0
+                   1))))
