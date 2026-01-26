@@ -89,8 +89,6 @@
         (-> (.doFinal hmac (.getBytes msg))
             (base64-encode-string))))))
 
-(defn pthru [o] (clojure.pprint/pprint o) o)
-
 (defn make-request-authenticator
   "Creates a request authenticator function using HMAC for signing requests."
   [{hmac-key ::hmac-key hostname ::hostname}]

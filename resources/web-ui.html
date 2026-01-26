@@ -1,0 +1,510 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Nexus DDNS - Records Browser</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
+            background: #f5f5f5;
+            color: #333;
+            line-height: 1.6;
+        }
+        
+        .container {
+            max-width: 1400px;
+            margin: 0 auto;
+            padding: 20px;
+        }
+        
+        header {
+            background: #2c3e50;
+            color: white;
+            padding: 20px;
+            margin-bottom: 30px;
+            border-radius: 8px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        }
+        
+        h1 {
+            font-size: 2em;
+            margin-bottom: 10px;
+        }
+        
+        .subtitle {
+            opacity: 0.9;
+            font-size: 1.1em;
+        }
+        
+        .filters {
+            background: white;
+            padding: 20px;
+            border-radius: 8px;
+            margin-bottom: 20px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        }
+        
+        .filter-row {
+            display: grid;
+            grid-template-columns: 1fr 1fr 2fr auto;
+            gap: 15px;
+            align-items: end;
+        }
+        
+        .filter-group {
+            display: flex;
+            flex-direction: column;
+        }
+        
+        label {
+            font-weight: 600;
+            margin-bottom: 5px;
+            color: #555;
+        }
+        
+        input, select {
+            padding: 10px;
+            border: 2px solid #ddd;
+            border-radius: 4px;
+            font-size: 1em;
+            transition: border-color 0.3s;
+        }
+        
+        input:focus, select:focus {
+            outline: none;
+            border-color: #3498db;
+        }
+        
+        button {
+            padding: 10px 20px;
+            background: #3498db;
+            color: white;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 1em;
+            font-weight: 600;
+            transition: background 0.3s;
+        }
+        
+        button:hover {
+            background: #2980b9;
+        }
+        
+        button:active {
+            transform: translateY(1px);
+        }
+        
+        .stats {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 15px;
+            margin-bottom: 20px;
+        }
+        
+        .stat-card {
+            background: white;
+            padding: 20px;
+            border-radius: 8px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        }
+        
+        .stat-value {
+            font-size: 2em;
+            font-weight: bold;
+            color: #3498db;
+        }
+        
+        .stat-label {
+            color: #777;
+            margin-top: 5px;
+        }
+        
+        .records-container {
+            background: white;
+            border-radius: 8px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+            overflow: hidden;
+        }
+        
+        table {
+            width: 100%;
+            border-collapse: collapse;
+        }
+        
+        thead {
+            background: #34495e;
+            color: white;
+        }
+        
+        th {
+            padding: 15px;
+            text-align: left;
+            font-weight: 600;
+            cursor: pointer;
+            user-select: none;
+        }
+        
+        th:hover {
+            background: #2c3e50;
+        }
+        
+        th.sortable::after {
+            content: ' ⇅';
+            opacity: 0.5;
+        }
+        
+        th.sort-asc::after {
+            content: ' ↑';
+            opacity: 1;
+        }
+        
+        th.sort-desc::after {
+            content: ' ↓';
+            opacity: 1;
+        }
+        
+        td {
+            padding: 12px 15px;
+            border-bottom: 1px solid #eee;
+        }
+        
+        tbody tr:hover {
+            background: #f8f9fa;
+        }
+        
+        tbody tr:last-child td {
+            border-bottom: none;
+        }
+        
+        .record-type {
+            display: inline-block;
+            padding: 4px 10px;
+            border-radius: 4px;
+            font-weight: 600;
+            font-size: 0.85em;
+        }
+        
+        .type-A {
+            background: #e3f2fd;
+            color: #1976d2;
+        }
+        
+        .type-AAAA {
+            background: #f3e5f5;
+            color: #7b1fa2;
+        }
+        
+        .type-SSHFP {
+            background: #e8f5e9;
+            color: #388e3c;
+        }
+        
+        .type-TXT {
+            background: #fff3e0;
+            color: #f57c00;
+        }
+        
+        .type-SOA, .type-NS {
+            background: #fce4ec;
+            color: #c2185b;
+        }
+        
+        .loading {
+            text-align: center;
+            padding: 40px;
+            color: #777;
+        }
+        
+        .error {
+            background: #ffebee;
+            color: #c62828;
+            padding: 15px;
+            border-radius: 4px;
+            margin-bottom: 20px;
+        }
+        
+        .no-records {
+            text-align: center;
+            padding: 40px;
+            color: #777;
+        }
+        
+        .content-cell {
+            max-width: 400px;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap;
+        }
+        
+        .content-cell:hover {
+            overflow: visible;
+            white-space: normal;
+            word-break: break-all;
+        }
+        
+        @media (max-width: 768px) {
+            .filter-row {
+                grid-template-columns: 1fr;
+            }
+            
+            .stats {
+                grid-template-columns: repeat(2, 1fr);
+            }
+            
+            table {
+                font-size: 0.9em;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <header>
+            <h1>Nexus DDNS</h1>
+            <div class="subtitle">DNS Records Browser</div>
+        </header>
+        
+        <div class="filters">
+            <div class="filter-row">
+                <div class="filter-group">
+                    <label for="domainFilter">Domain</label>
+                    <select id="domainFilter">
+                        <option value="">All Domains</option>
+                    </select>
+                </div>
+                
+                <div class="filter-group">
+                    <label for="typeFilter">Record Type</label>
+                    <select id="typeFilter">
+                        <option value="">All Types</option>
+                        <option value="A">A (IPv4)</option>
+                        <option value="AAAA">AAAA (IPv6)</option>
+                        <option value="SSHFP">SSHFP</option>
+                        <option value="TXT">TXT</option>
+                        <option value="SOA">SOA</option>
+                        <option value="NS">NS</option>
+                    </select>
+                </div>
+                
+                <div class="filter-group">
+                    <label for="searchFilter">Search (name/content)</label>
+                    <input type="text" id="searchFilter" placeholder="Search records...">
+                </div>
+                
+                <button onclick="loadRecords()">Refresh</button>
+            </div>
+        </div>
+        
+        <div class="stats" id="stats">
+            <div class="stat-card">
+                <div class="stat-value" id="totalRecords">0</div>
+                <div class="stat-label">Total Records</div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-value" id="totalDomains">0</div>
+                <div class="stat-label">Domains</div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-value" id="ipv4Records">0</div>
+                <div class="stat-label">IPv4 Records</div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-value" id="ipv6Records">0</div>
+                <div class="stat-label">IPv6 Records</div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-value" id="sshfpRecords">0</div>
+                <div class="stat-label">SSHFP Records</div>
+            </div>
+        </div>
+        
+        <div id="errorContainer"></div>
+        
+        <div class="records-container">
+            <table id="recordsTable">
+                <thead>
+                    <tr>
+                        <th class="sortable" data-sort="id">ID</th>
+                        <th class="sortable" data-sort="domain">Domain</th>
+                        <th class="sortable" data-sort="name">Name</th>
+                        <th class="sortable" data-sort="type">Type</th>
+                        <th class="sortable" data-sort="content">Content</th>
+                        <th class="sortable" data-sort="ttl">TTL</th>
+                        <th class="sortable" data-sort="disabled">Status</th>
+                    </tr>
+                </thead>
+                <tbody id="recordsBody">
+                    <tr>
+                        <td colspan="7" class="loading">Loading records...</td>
+                    </tr>
+                </tbody>
+            </table>
+        </div>
+    </div>
+    
+    <script>
+        let allRecords = [];
+        let currentSort = { column: 'id', direction: 'asc' };
+        
+        async function loadRecords() {
+            const errorContainer = document.getElementById('errorContainer');
+            const recordsBody = document.getElementById('recordsBody');
+            
+            errorContainer.innerHTML = '';
+            recordsBody.innerHTML = '<tr><td colspan="7" class="loading">Loading records...</td></tr>';
+            
+            try {
+                const response = await fetch('/api/v2/records');
+                if (!response.ok) {
+                    throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+                }
+                
+                const data = await response.json();
+                allRecords = data.records || [];
+                
+                updateDomainFilter();
+                updateStats();
+                filterAndDisplayRecords();
+            } catch (error) {
+                console.error('Error loading records:', error);
+                errorContainer.innerHTML = `<div class="error">Failed to load records: ${error.message}</div>`;
+                recordsBody.innerHTML = '<tr><td colspan="7" class="no-records">Failed to load records</td></tr>';
+            }
+        }
+        
+        function updateDomainFilter() {
+            const domains = [...new Set(allRecords.map(r => r.domain))].sort();
+            const domainFilter = document.getElementById('domainFilter');
+            const currentValue = domainFilter.value;
+            
+            domainFilter.innerHTML = '<option value="">All Domains</option>' +
+                domains.map(d => `<option value="${d}">${d}</option>`).join('');
+            
+            if (domains.includes(currentValue)) {
+                domainFilter.value = currentValue;
+            }
+        }
+        
+        function updateStats() {
+            const types = allRecords.reduce((acc, r) => {
+                acc[r.type] = (acc[r.type] || 0) + 1;
+                return acc;
+            }, {});
+            
+            const domains = new Set(allRecords.map(r => r.domain));
+            
+            document.getElementById('totalRecords').textContent = allRecords.length;
+            document.getElementById('totalDomains').textContent = domains.size;
+            document.getElementById('ipv4Records').textContent = types['A'] || 0;
+            document.getElementById('ipv6Records').textContent = types['AAAA'] || 0;
+            document.getElementById('sshfpRecords').textContent = types['SSHFP'] || 0;
+        }
+        
+        function filterAndDisplayRecords() {
+            const domainFilter = document.getElementById('domainFilter').value.toLowerCase();
+            const typeFilter = document.getElementById('typeFilter').value;
+            const searchFilter = document.getElementById('searchFilter').value.toLowerCase();
+            
+            let filtered = allRecords.filter(record => {
+                if (domainFilter && record.domain.toLowerCase() !== domainFilter) {
+                    return false;
+                }
+                
+                if (typeFilter && record.type !== typeFilter) {
+                    return false;
+                }
+                
+                if (searchFilter) {
+                    const searchable = `${record.name} ${record.content}`.toLowerCase();
+                    if (!searchable.includes(searchFilter)) {
+                        return false;
+                    }
+                }
+                
+                return true;
+            });
+            
+            // Sort records
+            filtered.sort((a, b) => {
+                const aVal = a[currentSort.column];
+                const bVal = b[currentSort.column];
+                
+                let comparison = 0;
+                if (typeof aVal === 'number' && typeof bVal === 'number') {
+                    comparison = aVal - bVal;
+                } else {
+                    comparison = String(aVal).localeCompare(String(bVal));
+                }
+                
+                return currentSort.direction === 'asc' ? comparison : -comparison;
+            });
+            
+            displayRecords(filtered);
+        }
+        
+        function displayRecords(records) {
+            const recordsBody = document.getElementById('recordsBody');
+            
+            if (records.length === 0) {
+                recordsBody.innerHTML = '<tr><td colspan="7" class="no-records">No records found</td></tr>';
+                return;
+            }
+            
+            recordsBody.innerHTML = records.map(record => `
+                <tr>
+                    <td>${record.id}</td>
+                    <td>${record.domain}</td>
+                    <td>${record.name}</td>
+                    <td><span class="record-type type-${record.type}">${record.type}</span></td>
+                    <td class="content-cell" title="${record.content}">${record.content}</td>
+                    <td>${record.ttl || '-'}</td>
+                    <td>${record.disabled ? '🔴 Disabled' : '🟢 Active'}</td>
+                </tr>
+            `).join('');
+        }
+        
+        function setupTableSorting() {
+            document.querySelectorAll('th.sortable').forEach(th => {
+                th.addEventListener('click', () => {
+                    const column = th.dataset.sort;
+                    
+                    if (currentSort.column === column) {
+                        currentSort.direction = currentSort.direction === 'asc' ? 'desc' : 'asc';
+                    } else {
+                        currentSort.column = column;
+                        currentSort.direction = 'asc';
+                    }
+                    
+                    // Update header classes
+                    document.querySelectorAll('th.sortable').forEach(header => {
+                        header.classList.remove('sort-asc', 'sort-desc');
+                    });
+                    th.classList.add(`sort-${currentSort.direction}`);
+                    
+                    filterAndDisplayRecords();
+                });
+            });
+        }
+        
+        // Event listeners
+        document.getElementById('domainFilter').addEventListener('change', filterAndDisplayRecords);
+        document.getElementById('typeFilter').addEventListener('change', filterAndDisplayRecords);
+        document.getElementById('searchFilter').addEventListener('input', filterAndDisplayRecords);
+        
+        // Initialize
+        setupTableSorting();
+        loadRecords();
+        
+        // Auto-refresh every 30 seconds
+        setInterval(loadRecords, 30000);
+    </script>
+</body>
+</html>

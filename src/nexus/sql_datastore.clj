@@ -21,32 +21,30 @@
 (defn exec!
   "Execute the given SQL statements in a transaction"
   [store & sqls]
-  (letfn [(log! [sql]
-            (when (:verbose store)
-              (println (str "executing: " sql)))
-            sql)]
-    (try
-      (jdbc/with-transaction [tx (jdbc/get-connection (:datasource store))]
-        (doseq [sql sqls]
-          (jdbc/execute! tx (log! (sql/format sql)))))
-      (catch Exception e
-        (when (:verbose store)
-          (println (capture-stack-trace e)))
-        (throw e)))))
+  (try
+    (jdbc/with-transaction [tx (:datasource store)]
+      (doseq [sql sqls]
+        (let [formatted-sql (sql/format sql)]
+          (when (:verbose store)
+            (println (str "executing: " formatted-sql)))
+          (jdbc/execute! tx formatted-sql))))
+    (catch Exception e
+      (when (:verbose store)
+        (println (capture-stack-trace e)))
+      (throw e))))
 
 (defn fetch!  
   "Fetch results for the given SQL query" 
   [store sql]
-  (letfn [(log! [sql]
-            (when (:verbose store)
-              (println (str "fetching: " sql))
-              sql))]
-    (try
-      (jdbc/execute! (:datasource store) (log! (sql/format sql)))
-      (catch Exception e
-        (when (:verbose store)
-          (println (capture-stack-trace e)))
-        (throw e)))))
+  (try
+    (let [formatted-sql (sql/format sql)]
+      (when (:verbose store)
+        (println (str "fetching: " formatted-sql)))
+      (jdbc/execute! (:datasource store) formatted-sql))
+    (catch Exception e
+      (when (:verbose store)
+        (println (capture-stack-trace e)))
+      (throw e))))
 
 (defn host-has-record-sql
   "SQL to check if a host has a record of the given type"
@@ -300,7 +298,7 @@
                  (println (str "executing: " sql)))
                sql)
         params-with-domid (assoc-domain-id store params)]
-    (try (jdbc/with-transaction [tx (jdbc/get-connection (:datasource store))]
+    (try (jdbc/with-transaction [tx (:datasource store)]
            (let [create-challenge-record (log! (sql/format (create-challenge-record-sql params-with-domid)))
                  record-id (some-> (jdbc/execute! tx create-challenge-record)
                                    (first)
@@ -374,6 +372,35 @@
           true)
       false)))
 
+(defn list-all-records-sql
+  "SQL to retrieve all records with their domain information"
+  []
+  (-> (select :records.id
+              :domains.name
+              :records.name
+              :records.type
+              :records.content
+              :records.ttl
+              :records.prio
+              :records.disabled)
+      (from :records)
+      (join :domains [:= :records.domain_id :domains.id])))
+
+(defn list-all-records-impl
+  "List all DNS records with domain information"
+  [store]
+  (some->> (list-all-records-sql)
+           (fetch! store)
+           (map (fn [record]
+                  {:id (:records/id record)
+                   :domain (:domains/name record)
+                   :name (:records/name record)
+                   :type (:records/type record)
+                   :content (:records/content record)
+                   :ttl (:records/ttl record)
+                   :prio (:records/prio record)
+                   :disabled (:records/disabled record)}))))
+
 (defrecord SqlDataStore [verbose datasource]
 
   datastore/IDataStore
@@ -411,7 +438,7 @@
     (when verbose
       (println (format "batch update for %s.%s: %s"
                        host domain batch-data)))
-    (jdbc/with-transaction [tx (jdbc/get-connection (:datasource self))]
+    (jdbc/with-transaction [tx (:datasource self)]
       (let [params {:domain domain :host host}
             results {}]
         (when-let [ipv4 (:ipv4 batch-data)]
@@ -436,7 +463,12 @@
   (delete-challenge-record [self domain challenge-id]
     (when verbose
       (println (format "removing challenge record %s for domain %s" challenge-id domain)))
-    (delete-challenge-record-impl self {:domain domain :challenge-id challenge-id})))
+    (delete-challenge-record-impl self {:domain domain :challenge-id challenge-id}))
+  
+  (list-all-records [self]
+    (when verbose
+      (println "fetching all records"))
+    (list-all-records-impl self)))
 
 (defn connect [{:keys [database-user database-password-file database-host database-port database verbose]
                 :or {database-port 5432

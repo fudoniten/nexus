@@ -47,4 +47,8 @@
   
   (delete-challenge-record  
     [_ domain challenge-id]
-    "Delete an ACME challenge record after validation"))
+    "Delete an ACME challenge record after validation")
+  
+  (list-all-records
+    [_]
+    "List all DNS records in the database with domain information"))

@@ -2,6 +2,7 @@
   (:require [reitit.ring :as ring]
             [clojure.data.json :as json]
             [clojure.string :as str]
+            [clojure.java.io :as io]
             [nexus.logging :as log]
             [nexus.metrics :as metrics]
             [taoensso.timbre :as timbre]
@@ -10,11 +11,11 @@
             [nexus.host-alias-map :as host-map]
             [slingshot.slingshot :refer [try+]]
             [fudo-clojure.ip :as ip]
-            [fudo-clojure.common :refer [current-epoch-timestamp parse-epoch-timestamp]]))
+            [fudo-clojure.common :refer [current-epoch-timestamp]]))
 
 (defn- set-host-ipv4 
   "Handler for setting a host's IPv4 address record"
-  [store]
+  [store metrics-registry]
   (fn [{:keys [payload]
        {:keys [host domain]} :path-params}]
     (try+
@@ -23,6 +24,7 @@
          {:status 400
           :body (format "rejected: not a v4 IP: %s" payload)})
        (store/set-host-ipv4 store domain host ip)
+       (metrics/inc-counter! metrics-registry :ipv4-updates)
        {:status 200 :body (str ip)})
      (catch IllegalArgumentException _
        {:status 400
@@ -37,7 +39,7 @@
 
 (defn- set-host-ipv6
   "Handler for setting a host's IPv6 address record"
-  [store]  
+  [store metrics-registry]  
   (fn [{:keys [payload]
        {:keys [host domain]} :path-params}]
     (try+
@@ -46,6 +48,7 @@
          {:status 400
           :body (format "rejected: not a v6 IP: %s" payload)})
        (store/set-host-ipv6 store domain host ip)
+       (metrics/inc-counter! metrics-registry :ipv6-updates)
        {:status 200 :body (str ip)})
      (catch IllegalArgumentException _
        {:status 400
@@ -59,19 +62,26 @@
         :body "Internal server error"}))))
 
 (defn- valid-sshfp? [sshfp]
-  (not (nil? (re-matches #"^[12346] [12] [0-9a-fA-F ]{20,256}$" sshfp))))
+  (not (nil? (re-matches #"^[12346] [12] [0-9a-fA-F]{16,256}$" sshfp))))
 
 (defn- set-host-sshfps
   "Handler for setting a host's SSHFP records"
-  [store]
+  [store metrics-registry]
   (fn [{:keys [payload]
        {:keys [host domain]} :path-params}]
     (try+
-     (if (not (every? valid-sshfp? payload))
-       {:status 400 :body (str "rejected: invalid sshfp: "
-                               (some (comp not valid-sshfp?) payload))}
-       (do (store/set-host-sshfps store domain host payload)
-           {:status 200 :body payload}))
+     (let [;; If payload is a string, split by newlines; otherwise treat as collection
+           sshfp-lines (if (string? payload)
+                         (->> (str/split-lines payload)
+                              (map str/trim)
+                              (filter #(not (str/blank? %))))
+                         payload)]
+       (if (not (every? valid-sshfp? sshfp-lines))
+         {:status 400 :body (str "rejected: invalid sshfp: "
+                                 (some (comp not valid-sshfp?) sshfp-lines))}
+         (do (store/set-host-sshfps store domain host sshfp-lines)
+             (metrics/inc-counter! metrics-registry :sshfp-updates)
+             {:status 200 :body (str/join "\n" sshfp-lines)})))
      (catch Exception e
        (log/log-error "set-host-sshfps-failed" e
                      {:domain domain
@@ -129,7 +139,7 @@
 
 (defn- set-host-batch
   "Handler for batch updating multiple record types for a host"
-  [store]
+  [store metrics-registry]
   (fn [{:keys [payload]
        {:keys [host domain]} :path-params}]
     (try+
@@ -155,19 +165,26 @@
            (catch IllegalArgumentException _
              (swap! errors conj (format "failed to parse IPv6: %s" ipv6-str)))))
        
-       ;; Validate SSHFPs if present
-       (when-let [sshfps (:sshfps payload)]
-         (if (every? valid-sshfp? sshfps)
-           (swap! validated-data assoc :sshfps sshfps)
-           (swap! errors conj (str "invalid sshfp records: "
-                                   (filter (comp not valid-sshfp?) sshfps)))))
+        ;; Validate SSHFPs if present
+        (when-let [sshfps (:sshfps payload)]
+          (let [;; If sshfps is a string, split by newlines; otherwise treat as collection
+                sshfp-lines (if (string? sshfps)
+                              (->> (str/split-lines sshfps)
+                                   (map str/trim)
+                                   (filter #(not (str/blank? %))))
+                              sshfps)]
+            (if (every? valid-sshfp? sshfp-lines)
+              (swap! validated-data assoc :sshfps sshfp-lines)
+              (swap! errors conj (str "invalid sshfp records: "
+                                      (filter (comp not valid-sshfp?) sshfp-lines))))))
        
-       ;; Return errors if any validation failed
-       (if (seq @errors)
-         {:status 400 :body {:errors @errors}}
-         ;; Otherwise perform batch update
-         (do (store/set-host-batch store domain host @validated-data)
-             {:status 200 :body @validated-data})))
+        ;; Return errors if any validation failed
+        (if (seq @errors)
+          {:status 400 :body {:errors @errors}}
+          ;; Otherwise perform batch update
+          (do (store/set-host-batch store domain host @validated-data)
+              (metrics/inc-counter! metrics-registry :batch-updates)
+              {:status 200 :body (update-vals @validated-data str)})))
      (catch Exception e
        (log/log-error "set-host-batch-failed" e
                      {:domain domain
@@ -192,11 +209,12 @@
 
 (defn- create-challenge-record
   "Handler for creating a new ACME challenge record"
-  [store]
+  [store metrics-registry]
   (fn [{{:keys [host secret]}         :payload
        {:keys [domain challenge-id]} :path-params}]
     (try+
      (do (store/create-challenge-record store domain host challenge-id secret)
+         (metrics/inc-counter! metrics-registry :challenge-creates)
          {:status 200 :body (str challenge-id)})
      (catch Exception e
        {:status 500
@@ -205,10 +223,11 @@
 
 (defn- delete-challenge-record
   "Handler for deleting an ACME challenge record"
-  [store]
+  [store metrics-registry]
   (fn [{{:keys [domain challenge-id]} :path-params}]
     (try+
      (do (store/delete-challenge-record store domain (parse-uuid challenge-id))
+         (metrics/inc-counter! metrics-registry :challenge-deletes)
          {:status 200 :body (str challenge-id)})
      (catch Exception e
        (when (:verbose store)
@@ -216,6 +235,45 @@
        {:status 500
         :body {:error (format "an unknown error has occured: %s"
                               (.toString e))}}))))
+
+(defn- list-records
+  "Handler for listing all DNS records"
+  [store]
+  (fn [_]
+    (try+
+     (let [records (store/list-all-records store)]
+       {:status 200 :body {:records records}})
+     (catch Exception e
+       (log/log-error "list-records-failed" e {})
+       {:status 500
+        :body {:error "Failed to fetch records"}}))))
+
+(defn- serve-web-ui
+  "Handler for serving the web UI HTML"
+  []
+  (fn [_]
+    (try
+      (let [html-content (slurp (io/resource "web-ui.html"))]
+        {:status 200
+         :headers {"Content-Type" "text/html; charset=utf-8"}
+         :body html-content})
+      (catch Exception e
+        (log/log-error "serve-web-ui-failed" e {})
+        {:status 500
+         :body "Failed to load web UI"}))))
+
+(defn- serve-metrics
+  "Handler for serving Prometheus metrics"
+  [metrics-registry]
+  (fn [_]
+    (try
+      {:status 200
+       :headers {"Content-Type" "text/plain; version=0.0.4"}
+       :body (metrics/metrics-handler metrics-registry)}
+      (catch Exception e
+        (log/log-error "serve-metrics-failed" e {})
+        {:status 500
+         :body "Failed to generate metrics"}))))
 
 (defn- decode-body
   "Middleware to parse the request body as JSON or plain text based on content-type"
@@ -269,31 +327,35 @@
 
 (defn- make-challenge-signature-authenticator
   "Create middleware to authenticate requests to the ACME challenge API"
-  [verbose authenticator]
+  [verbose authenticator metrics-registry]
   (fn [handler]
     (fn [{{:keys [access-signature service]} :headers :as req}]
       (if (nil? access-signature)
         (do (when verbose (println "missing access signature, rejecting request"))
+            (metrics/inc-counter! metrics-registry :auth-failures)
             { :status 406 :body "rejected: missing request signature" })
         (try+
          (if (authenticate-request authenticator (keyword service) req)
            (do (when verbose (println "accepted signature, proceeding"))
                (handler req))
            (do (when verbose (println "bad signature, rejecting request"))
+               (metrics/inc-counter! metrics-registry :auth-failures)
                { :status 401 :body "rejected: request signature invalid" }))
          (catch [:type ::auth/missing-key] _
            (println (format "matching key not found for service %s, rejecting request" service))
+           (metrics/inc-counter! metrics-registry :auth-failures)
            { :status 401 :body (format "rejected: missing key for service: %s" service) }))))))
 
 (defn- make-host-signature-authenticator
   "Create middleware to authenticate requests to the host record API"
-  [verbose authenticator host-mapper]
+  [verbose authenticator host-mapper metrics-registry]
   (fn [handler]
     (fn [{{:keys [access-signature]} :headers
          {:keys [host domain]} :path-params
          :as req}]
       (if (nil? access-signature)
         (do (when verbose (println "missing access signature, rejecting request"))
+            (metrics/inc-counter! metrics-registry :auth-failures)
             { :status 401 :body "rejected: missing request signature" })
         (try+
          (let [signer  (host-map/get-host host-mapper host domain)]
@@ -301,9 +363,11 @@
              (do (when verbose (println "accepted signature, proceeding"))
                  (handler req))
              (do (when verbose (println "bad signature, rejecting request"))
+                 (metrics/inc-counter! metrics-registry :auth-failures)
                  { :status 401 :body "rejected: request signature invalid" })))
          (catch [:type ::auth/missing-key] _
            (println "matching key not found, rejecting request")
+           (metrics/inc-counter! metrics-registry :auth-failures)
            { :status 404 :body (str "rejected: missing key for host") }))))))
 
 (defn pthru [msg o] (println (format "%s: %s" msg o)) o)
@@ -360,29 +424,32 @@
     (log/setup-logging! {:verbose verbose})
     (log/info! {:event "server-starting"})
     (ring/ring-handler
-     (ring/router [["/api"
+     (ring/router [["/" {:get {:handler (serve-web-ui)}}]
+                   ["/metrics" {:get {:handler (serve-metrics metrics-registry)}}]
+                   ["/api"
                     ["/v2" {:middleware [keywordize-headers
                                          decode-body 
                                          encode-body
                                          (log-requests verbose)
                                          (metrics/time-request metrics-registry)]}
                      ["/health"  {:get {:handler (fn [_] {:status 200 :body "OK"})}}]
+                     ["/records" {:get {:handler (list-records data-store)}}]
                      ["/domain/:domain"
-                      ["/challenges" {:middleware [(make-challenge-signature-authenticator verbose challenge-authenticator)
+                      ["/challenges" {:middleware [(make-challenge-signature-authenticator verbose challenge-authenticator metrics-registry)
                                                    (make-timing-validator max-delay)]}
                        ["/list" {:get {:handler (get-challenge-records data-store)}}]]
-                      ["/challenge" {:middleware [(make-challenge-signature-authenticator verbose challenge-authenticator)
+                      ["/challenge" {:middleware [(make-challenge-signature-authenticator verbose challenge-authenticator metrics-registry)
                                                   (make-timing-validator max-delay)]}
-                       ["/:challenge-id" {:put    {:handler (create-challenge-record data-store)}
-                                          :delete {:handler (delete-challenge-record data-store)}}]]
-                       ["/host" {:middleware [(make-host-signature-authenticator verbose host-authenticator host-mapper)
+                       ["/:challenge-id" {:put    {:handler (create-challenge-record data-store metrics-registry)}
+                                          :delete {:handler (delete-challenge-record data-store metrics-registry)}}]]
+                       ["/host" {:middleware [(make-host-signature-authenticator verbose host-authenticator host-mapper metrics-registry)
                                               (make-timing-validator max-delay)]}
                         ["/:host"
-                         ["/ipv4"   {:put {:handler (set-host-ipv4 data-store)}
+                         ["/ipv4"   {:put {:handler (set-host-ipv4 data-store metrics-registry)}
                                      :get {:handler (get-host-ipv4 data-store)}}]
-                         ["/ipv6"   {:put {:handler (set-host-ipv6 data-store)}
+                         ["/ipv6"   {:put {:handler (set-host-ipv6 data-store metrics-registry)}
                                      :get {:handler (get-host-ipv6 data-store)}}]
-                         ["/sshfps" {:put {:handler (set-host-sshfps data-store)}
+                         ["/sshfps" {:put {:handler (set-host-sshfps data-store metrics-registry)}
                                      :get {:handler (get-host-sshfps data-store)}}]
-                         ["/batch"  {:put {:handler (set-host-batch data-store)}}]]]]]]])
+                         ["/batch"  {:put {:handler (set-host-batch data-store metrics-registry)}}]]]]]]])
      (ring/create-default-handler))))

@@ -1428,14 +1428,14 @@
       "hash": "sha256-bLAX6lSX2D/h8A9TRp7fJcM1fCEYPc/WqryzT5U0t84="
     },
     {
-      "mvn-path": "org/checkerframework/checker-qual/3.31.0/checker-qual-3.31.0.jar",
+      "mvn-path": "org/checkerframework/checker-qual/3.42.0/checker-qual-3.42.0.jar",
       "mvn-repo": "https://repo1.maven.org/maven2/",
-      "hash": "sha256-HO9fR20ixvtFOH3dhAT16CHL1mSHvhvfjuZIceY0Ubk="
+      "hash": "sha256-zK7dM68LeJTZ8vO2RPTRnkOSjjKQLmGsTRB3eDD1qsc="
     },
     {
-      "mvn-path": "org/checkerframework/checker-qual/3.31.0/checker-qual-3.31.0.pom",
+      "mvn-path": "org/checkerframework/checker-qual/3.42.0/checker-qual-3.42.0.pom",
       "mvn-repo": "https://repo1.maven.org/maven2/",
-      "hash": "sha256-Q1ecPr5H54NYp/MvlnN471YXWyKUszUYNYTwvSNZUjE="
+      "hash": "sha256-v1/KqycvVMvPG753w72WPIIcmrrSBYcIvwvtPIdUlMo="
     },
     {
       "mvn-path": "org/clj-commons/pretty/3.3.2/pretty-3.3.2.jar",
@@ -2318,14 +2318,14 @@
       "hash": "sha256-D4obEW52C4/mOJxRuE5LB6cPwRCC1Pk25FO1g91QtDs="
     },
     {
-      "mvn-path": "org/postgresql/postgresql/42.6.0/postgresql-42.6.0.jar",
+      "mvn-path": "org/postgresql/postgresql/42.7.4/postgresql-42.7.4.jar",
       "mvn-repo": "https://repo1.maven.org/maven2/",
-      "hash": "sha256-uBfGekDJQkn9WdTmhuMyftDT0/rkJrINoPHnVlLPxGE="
+      "hash": "sha256-GIl2ch6tjoYn622DidUA3MwMm+vYhSaKMEcYAnSmAx4="
     },
     {
-      "mvn-path": "org/postgresql/postgresql/42.6.0/postgresql-42.6.0.pom",
+      "mvn-path": "org/postgresql/postgresql/42.7.4/postgresql-42.7.4.pom",
       "mvn-repo": "https://repo1.maven.org/maven2/",
-      "hash": "sha256-/7rvTx/EjRJoPsOacywfRVqa4x4VNNp85N0GCWDoDsU="
+      "hash": "sha256-3fwfCT5VJ6+bPQWhG+sJtGYfLCsv8zdkmnNp7qDMcd4="
     },
     {
       "mvn-path": "org/ring-clojure/ring-core-protocols/1.12.1/ring-core-protocols-1.12.1.jar",

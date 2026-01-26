@@ -111,13 +111,19 @@
         host-key-str (crypto/encode-key host-key)
         test-keys {:testhost host-key-str}
         
-        ;; Create datastore
-        datastore (store/->SqlDataStore false db-spec)
+        ;; Create datastore with proper DataSource
+        datastore (store/->SqlDataStore false (jdbc/get-datasource db-spec))
         
         ;; Create authenticators and host mapper
+        ;; Map all test hostnames to the main testhost for authentication
+        host-alias-map {"ipv4test.test.example.com" :testhost
+                        "ipv6test.test.example.com" :testhost
+                        "sshfptest.test.example.com" :testhost
+                        "batchtest.test.example.com" :testhost
+                        "soatest.test.example.com" :testhost}
         host-authenticator (auth/make-authenticator test-keys false)
         challenge-authenticator (auth/make-authenticator {} false)
-        host-mapper (host-map/->HostAliasMap {})
+        host-mapper (host-map/->HostAliasMap host-alias-map)
         
         ;; Create server app
         app (server/create-app :host-authenticator host-authenticator
@@ -173,13 +179,14 @@
 (deftest test-ipv4-update-and-retrieval
   (testing "Can update IPv4 address and retrieve it from database"
     (let [domain "test.example.com"
-          hostname "testhost"
+          hostname "ipv4test"
+          auth-hostname "testhost"
           ipv4 "192.0.2.100"
-          key-str (get *test-keys* (keyword hostname))
+          key-str (get *test-keys* :testhost)
           path (str "/api/v2/domain/" domain "/host/" hostname "/ipv4")]
       
       ;; Update IPv4
-      (let [req (make-authenticated-request :put path hostname key-str :body ipv4)
+      (let [req (make-authenticated-request :put path auth-hostname key-str :body ipv4)
             response (*app* req)]
         (is (= 200 (:status response))
             (str "PUT request failed: " (:status response) " - " (:body response))))
@@ -195,7 +202,7 @@
             "Database should contain the updated IP address"))
       
       ;; Retrieve via API
-      (let [req (make-authenticated-request :get path hostname key-str)
+      (let [req (make-authenticated-request :get path auth-hostname key-str)
             response (*app* req)]
         (is (= 200 (:status response)))
         (is (= ipv4 (:body response)))))))
@@ -203,13 +210,14 @@
 (deftest test-ipv6-update-and-retrieval
   (testing "Can update IPv6 address and retrieve it from database"
     (let [domain "test.example.com"
-          hostname "testhost"
+          hostname "ipv6test"
+          auth-hostname "testhost"
           ipv6 "2001:db8::1"
-          key-str (get *test-keys* (keyword hostname))
+          key-str (get *test-keys* :testhost)
           path (str "/api/v2/domain/" domain "/host/" hostname "/ipv6")]
       
       ;; Update IPv6
-      (let [req (make-authenticated-request :put path hostname key-str :body ipv6)
+      (let [req (make-authenticated-request :put path auth-hostname key-str :body ipv6)
             response (*app* req)]
         (is (= 200 (:status response))))
       
@@ -223,7 +231,7 @@
         (is (= ipv6 record-content)))
       
       ;; Retrieve via API
-      (let [req (make-authenticated-request :get path hostname key-str)
+      (let [req (make-authenticated-request :get path auth-hostname key-str)
             response (*app* req)]
         (is (= 200 (:status response)))
         (is (= ipv6 (:body response)))))))
@@ -231,14 +239,15 @@
 (deftest test-sshfp-update-and-retrieval
   (testing "Can update SSH fingerprints and retrieve them"
     (let [domain "test.example.com"
-          hostname "testhost"
+          hostname "sshfptest"
+          auth-hostname "testhost"
           ;; SSHFP format: "algorithm type fingerprint"
           sshfps "1 1 0123456789abcdef\n3 2 fedcba9876543210"
-          key-str (get *test-keys* (keyword hostname))
+          key-str (get *test-keys* :testhost)
           path (str "/api/v2/domain/" domain "/host/" hostname "/sshfps")]
       
       ;; Update SSHFPs
-      (let [req (make-authenticated-request :put path hostname key-str :body sshfps)
+      (let [req (make-authenticated-request :put path auth-hostname key-str :body sshfps)
             response (*app* req)]
         (is (= 200 (:status response))))
       
@@ -252,7 +261,7 @@
         (is (= 2 count) "Should have 2 SSHFP records"))
       
       ;; Retrieve via API
-      (let [req (make-authenticated-request :get path hostname key-str)
+      (let [req (make-authenticated-request :get path auth-hostname key-str)
             response (*app* req)]
         (is (= 200 (:status response)))
         (is (.contains (:body response) "0123456789abcdef"))
@@ -261,15 +270,16 @@
 (deftest test-batch-update
   (testing "Can update multiple record types in a single batch request"
     (let [domain "test.example.com"
-          hostname "testhost"
+          hostname "batchtest"
+          auth-hostname "testhost"
           batch-data (json/write-str {:ipv4 "192.0.2.200"
                                        :ipv6 "2001:db8::2"
-                                       :sshfps "1 1 batch123456789"})
-          key-str (get *test-keys* (keyword hostname))
+                                       :sshfps "1 1 0123456789abcdef"})
+          key-str (get *test-keys* :testhost)
           path (str "/api/v2/domain/" domain "/host/" hostname "/batch")]
       
       ;; Batch update
-      (let [req (-> (make-authenticated-request :put path hostname key-str :body batch-data)
+      (let [req (-> (make-authenticated-request :put path auth-hostname key-str :body batch-data)
                     (mock/content-type "application/json"))
             response (*app* req)]
         (is (= 200 (:status response))))
@@ -320,8 +330,9 @@
 (deftest test-soa-serial-auto-increment
   (testing "SOA serial auto-increments when records change"
     (let [domain "test.example.com"
-          hostname "testhost"
-          key-str (get *test-keys* (keyword hostname))
+          hostname "soatest"
+          auth-hostname "testhost"
+          key-str (get *test-keys* :testhost)
           path (str "/api/v2/domain/" domain "/host/" hostname "/ipv4")]
       
       ;; Get initial serial
@@ -332,7 +343,7 @@
                                :domains/notified_serial)]
         
         ;; Update a record
-        (let [req (make-authenticated-request :put path hostname key-str :body "192.0.2.123")
+        (let [req (make-authenticated-request :put path auth-hostname key-str :body "192.0.2.123")
               response (*app* req)]
           (is (= 200 (:status response))))
         
