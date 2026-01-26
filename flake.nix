@@ -81,9 +81,28 @@
                 })
               ];
           };
+
+          # Integration test environment with PostgreSQL
+          integration-tests = pkgs.mkShell {
+            name = "nexus-integration-tests";
+            buildInputs = with pkgs; [ clojure postgresql bash ];
+            shellHook = ''
+                echo "🧪 Integration test environment ready!"
+              echo ""
+              echo "To run integration tests:"
+              echo "  ./run-integration-tests.sh"
+              echo ""
+              echo "Or manually:"
+              echo "  export POSTGRES_HOST=localhost POSTGRES_PORT=5432"
+              echo "  export POSTGRES_DB=nexus_test POSTGRES_USER=postgres"  
+              echo "  clojure -M:test -n nexus.integration-test"
+            '';
+          };
         };
+
         # Run tests with eftest using deps-lock.json
         checks = {
+          # Unit tests (existing)
           nexus-tests = mkClojureTests {
             name = "nexus";
             src = ./.;

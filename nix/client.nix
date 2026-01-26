@@ -14,6 +14,14 @@ let
     (map (path: nameValuePair (baseNameOf path) path) cfg.ssh-key-files);
   hasSshfps = (lib.length cfg.ssh-key-files) > 0;
 
+  # Define domain filters at top level for reuse across services/paths/timers
+  publicDomains =
+    attrValues (filterAttrs (_: opts: opts.type == "public") cfg.domains);
+  privateDomains =
+    attrValues (filterAttrs (_: opts: opts.type == "private") cfg.domains);
+  tailscaleDomains =
+    attrValues (filterAttrs (_: opts: opts.type == "tailscale") cfg.domains);
+
 in {
   imports = [ ./options.nix ];
 
@@ -75,15 +83,6 @@ in {
               '';
             };
           };
-
-        publicDomains =
-          attrValues (filterAttrs (_: opts: opts.type == "public") cfg.domains);
-
-        privateDomains = attrValues
-          (filterAttrs (_: opts: opts.type == "private") cfg.domains);
-
-        tailscaleDomains = attrValues
-          (filterAttrs (_: opts: opts.type == "tailscale") cfg.domains);
       in {
         nexus-public-client = mkIf (publicDomains != [ ])
           (nexusClientService "public" publicDomains);
@@ -125,14 +124,7 @@ in {
       };
 
       # Timer units for periodic backup triggering
-      timers = let
-        publicDomains =
-          attrValues (filterAttrs (_: opts: opts.type == "public") cfg.domains);
-        privateDomains = attrValues
-          (filterAttrs (_: opts: opts.type == "private") cfg.domains);
-        tailscaleDomains = attrValues
-          (filterAttrs (_: opts: opts.type == "tailscale") cfg.domains);
-      in {
+      timers = {
         nexus-public-client = mkIf (publicDomains != [ ]) {
           description = "Nexus DDNS Client Timer - public IPs";
           wantedBy = [ "timers.target" ];
