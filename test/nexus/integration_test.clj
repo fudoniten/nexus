@@ -12,6 +12,7 @@
             [nexus.crypto :as crypto]
             [nexus.sql-datastore :as store]
             [nexus.host-alias-map :as host-map]
+            [nexus.authenticator :as auth]
             [ring.mock.request :as mock]
             [next.jdbc :as jdbc]
             [eftest.runner :as eftest]))
@@ -75,9 +76,9 @@
 (defn make-authenticated-request
   "Create an authenticated request with HMAC signature."
   [method path hostname key-str & {:keys [body]}]
-  (let [timestamp (System/currentTimeMillis)
+  (let [timestamp (quot (System/currentTimeMillis) 1000)  ; Convert to seconds
         timestamp-str (str timestamp)
-        req-str (str (name method) path timestamp-str (or body ""))
+        req-str (str (clojure.string/upper-case (name method)) path timestamp-str (or body ""))
         key (crypto/decode-key key-str)
         sig (crypto/generate-signature key req-str)
         req (-> (mock/request method path)
@@ -108,18 +109,22 @@
         ;; Generate test keys
         host-key (crypto/generate-key "HmacSHA256")
         host-key-str (crypto/encode-key host-key)
-        test-keys {"testhost" host-key-str}
+        test-keys {:testhost host-key-str}
         
         ;; Create datastore
         datastore (store/->SqlDataStore false db-spec)
         
+        ;; Create authenticators and host mapper
+        host-authenticator (auth/make-authenticator test-keys false)
+        challenge-authenticator (auth/make-authenticator {} false)
+        host-mapper (host-map/->HostAliasMap {})
+        
         ;; Create server app
-        app (server/create-app
-             {:datastore datastore
-              :host-keys test-keys
-              :challenge-keys {}
-              :host-alias-map (host-map/->HostAliasMap {})
-              :verbose false})]
+        app (server/create-app :host-authenticator host-authenticator
+                              :challenge-authenticator challenge-authenticator
+                              :data-store datastore
+                              :host-mapper host-mapper
+                              :verbose false)]
     
     ;; Initialize database schema
     (init-database! db-spec)
@@ -170,7 +175,7 @@
     (let [domain "test.example.com"
           hostname "testhost"
           ipv4 "192.0.2.100"
-          key-str (get *test-keys* hostname)
+          key-str (get *test-keys* (keyword hostname))
           path (str "/api/v2/domain/" domain "/host/" hostname "/ipv4")]
       
       ;; Update IPv4
@@ -200,7 +205,7 @@
     (let [domain "test.example.com"
           hostname "testhost"
           ipv6 "2001:db8::1"
-          key-str (get *test-keys* hostname)
+          key-str (get *test-keys* (keyword hostname))
           path (str "/api/v2/domain/" domain "/host/" hostname "/ipv6")]
       
       ;; Update IPv6
@@ -229,7 +234,7 @@
           hostname "testhost"
           ;; SSHFP format: "algorithm type fingerprint"
           sshfps "1 1 0123456789abcdef\n3 2 fedcba9876543210"
-          key-str (get *test-keys* hostname)
+          key-str (get *test-keys* (keyword hostname))
           path (str "/api/v2/domain/" domain "/host/" hostname "/sshfps")]
       
       ;; Update SSHFPs
@@ -260,7 +265,7 @@
           batch-data (json/write-str {:ipv4 "192.0.2.200"
                                        :ipv6 "2001:db8::2"
                                        :sshfps "1 1 batch123456789"})
-          key-str (get *test-keys* hostname)
+          key-str (get *test-keys* (keyword hostname))
           path (str "/api/v2/domain/" domain "/host/" hostname "/batch")]
       
       ;; Batch update
@@ -316,7 +321,7 @@
   (testing "SOA serial auto-increments when records change"
     (let [domain "test.example.com"
           hostname "testhost"
-          key-str (get *test-keys* hostname)
+          key-str (get *test-keys* (keyword hostname))
           path (str "/api/v2/domain/" domain "/host/" hostname "/ipv4")]
       
       ;; Get initial serial

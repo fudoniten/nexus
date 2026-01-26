@@ -218,24 +218,31 @@
                               (.toString e))}}))))
 
 (defn- decode-body
-  "Middleware to parse the request body as JSON"
+  "Middleware to parse the request body as JSON or plain text based on content-type"
   [handler]
-  (fn [{:keys [body] :as req}]
+  (fn [{:keys [body headers] :as req}]
     (if body
-      (let [body-str (slurp body)]
+      (let [body-str (slurp body)
+            content-type (get headers :content-type "text/plain")
+            payload (cond
+                      (= body-str "") {}
+                      (str/includes? content-type "application/json")
+                      (json/read-str body-str {:key-fn keyword})
+                      :else body-str)]
         (handler (-> req
-                     (assoc :payload (if (= body-str "")
-                                       {}
-                                       (json/read-str body-str {:key-fn keyword})))
+                     (assoc :payload payload)
                      (assoc :body-str body-str))))
       (handler (-> req (assoc :body-str ""))))))
 
 (defn- encode-body
-  "Middleware to serialize the response body as JSON"
+  "Middleware to serialize the response body as JSON (unless it's already a string)"
   [handler]
   (fn [req]
-    (let [resp (handler req)]
-      (assoc resp :body (json/write-str (:body resp))))))
+    (let [resp (handler req)
+          body (:body resp)]
+      (assoc resp :body (if (string? body)
+                          body
+                          (json/write-str body))))))
 
 (defn- keywordize-headers
   "Middleware to convert header names to keywords"
@@ -287,7 +294,7 @@
          :as req}]
       (if (nil? access-signature)
         (do (when verbose (println "missing access signature, rejecting request"))
-            { :status 406 :body "rejected: missing request signature" })
+            { :status 401 :body "rejected: missing request signature" })
         (try+
          (let [signer  (host-map/get-host host-mapper host domain)]
            (if (authenticate-request authenticator signer req)
@@ -308,9 +315,9 @@
     (fn [{{:keys [access-timestamp]} :headers
          :as req}]
       (if (nil? access-timestamp)
-        { :status 406 :body "rejected: missing request timestamp" }
+        { :status 401 :body "rejected: missing request timestamp" }
         (let [timestamp (-> access-timestamp
-                            (Integer/parseInt))
+                            (Long/parseLong))
               current-timestamp (current-epoch-timestamp)
               time-diff (abs (- timestamp current-timestamp))]
           (log/info! {:event "timing-validation"
@@ -359,7 +366,7 @@
                                          encode-body
                                          (log-requests verbose)
                                          (metrics/time-request metrics-registry)]}
-                     ["/health"  {:get {:handler (fn [_] {:status 200 :body "ok"})}}]
+                     ["/health"  {:get {:handler (fn [_] {:status 200 :body "OK"})}}]
                      ["/domain/:domain"
                       ["/challenges" {:middleware [(make-challenge-signature-authenticator verbose challenge-authenticator)
                                                    (make-timing-validator max-delay)]}
