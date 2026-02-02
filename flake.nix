@@ -22,9 +22,10 @@
           mkClojureBin mkClojureLib mkClojureTests;
 
         # Local Clojure libraries (no longer fetched from git!)
+        # Use preppedSrc instead of JAR for deps-lock to get transitive dependencies
         cljLibs = {
           "org.fudo/fudo-clojure" =
-            fudo-clojure.packages."${system}".fudo-clojure;
+            fudo-clojure.packages."${system}".fudo-clojure.preppedSrc;
         };
 
       in {
