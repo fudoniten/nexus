@@ -18,7 +18,7 @@
     utils.lib.eachDefaultSystem (system:
       let
         pkgs = import nixpkgs { inherit system; };
-        inherit (helpers.packages."${system}")
+        inherit (helpers.legacyPackages."${system}")
           mkClojureBin mkClojureLib mkClojureTests;
 
         # Local Clojure libraries (no longer fetched from git!)
@@ -67,13 +67,13 @@
 
           # Update deps-lock.json (without test dependencies)
           updateDeps = pkgs.mkShell {
-            buildInputs = with helpers.packages."${system}";
+            buildInputs = with helpers.legacyPackages."${system}";
               [ (updateClojureDeps { deps = cljLibs; }) ];
           };
 
           # Update deps-lock.json including test dependencies
           updateDepsWithTests = pkgs.mkShell {
-            buildInputs = with helpers.packages."${system}";
+            buildInputs = with helpers.legacyPackages."${system}";
               [
                 (updateClojureDeps {
                   deps = cljLibs;
