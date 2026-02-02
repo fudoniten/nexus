@@ -307,11 +307,11 @@
         "utils": "utils_5"
       },
       "locked": {
-        "lastModified": 1769296182,
-        "narHash": "sha256-Uist5KULGmZoLd1MRt+Ird4ktQxujhYzpw96lkJj4cM=",
+        "lastModified": 1769303802,
+        "narHash": "sha256-x+83MISFLt5KgZerDnxQsNc3s8nUB4EdU1uXyFuU6cI=",
         "owner": "fudoniten",
         "repo": "fudo-nix-helpers",
-        "rev": "21cf751d1b3a502aac719071014716fc4925f7e8",
+        "rev": "03a53a1652a34c2ec2f438287f4464173ea18b23",
         "type": "github"
       },
       "original": {
@@ -489,11 +489,11 @@
     },
     "nixpkgs_5": {
       "locked": {
-        "lastModified": 1769089682,
-        "narHash": "sha256-9yA/LIuAVQq0lXelrZPjLuLVuZdm03p8tfmHhnDIkms=",
+        "lastModified": 1769900590,
+        "narHash": "sha256-I7Lmgj3owOTBGuauy9FL6qdpeK2umDoe07lM4V+PnyA=",
         "owner": "NixOS",
         "repo": "nixpkgs",
-        "rev": "078d69f03934859a181e81ba987c2bb033eebfc5",
+        "rev": "41e216c0ca66c83b12ab7a98cc326b5db01db646",
         "type": "github"
       },
       "original": {
