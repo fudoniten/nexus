@@ -30,7 +30,7 @@
         ;; Shared library - UNIFIED VERSION (use newer)
         org.fudo/fudo-clojure {
                                :git/url "https://github.com/fudoniten/fudo-clojure.git"
-                               :git/sha "aa7da4169fbff2f11bac674b0c93ef0b0ef77b0f"
+                               :git/sha "7e8fcd123867b00c312311aa13d1d4e1dff691ea"
                                }
         }
  
