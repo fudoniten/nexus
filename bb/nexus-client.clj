@@ -3,24 +3,36 @@
 (ns nexus-client
   (:require [babashka.http-client :as http]
             [babashka.cli :as cli]
+            [babashka.process :as process]
             [clojure.string :as str]
             [clojure.java.io :as io]
             [cheshire.core :as json])
   (:import [javax.crypto Mac]
            [javax.crypto.spec SecretKeySpec]
            [java.util Base64]
-           [java.net InetAddress NetworkInterface]
+           [java.net InetAddress]
            [java.time Instant]))
 
 ;; --- IP Detection ---
 
 (defn get-all-ips []
-  "Get all IP addresses from all network interfaces"
-  (let [interfaces (NetworkInterface/getNetworkInterfaces)]
-    (->> (enumeration-seq interfaces)
-         (mapcat #(enumeration-seq (.getInetAddresses %)))
-         (map #(.getHostAddress %))
-         (remove nil?))))
+  "Get all IP addresses from all network interfaces using ip addr command"
+  (try
+    (let [result (process/shell {:out :string :continue true} "ip" "addr")]
+      (if (zero? (:exit result))
+        (->> (:out result)
+             str/split-lines
+             (keep (fn [line]
+                     (let [line (str/trim line)]
+                       (cond
+                         (str/starts-with? line "inet ")
+                         (second (re-find #"inet ([0-9\.]+)" line))
+                         (str/starts-with? line "inet6 ")
+                         (second (re-find #"inet6 ([0-9a-f:]+)" line))))))
+             (remove nil?))
+        []))
+    (catch Exception _
+      [])))
 
 (defn ipv4? [ip-str]
   "Check if IP string is IPv4"
