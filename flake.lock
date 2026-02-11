@@ -213,11 +213,11 @@
         "utils": "utils_3"
       },
       "locked": {
-        "lastModified": 1770058369,
-        "narHash": "sha256-KGVIBpZuA/epaJSFwaGRx8GaZFEzRNjMRSc7o4TQ8XA=",
+        "lastModified": 1770687338,
+        "narHash": "sha256-8Dfp3og3Naq5JUftyKRZmovzvu7lExMT3qb9cL7ael4=",
         "owner": "fudoniten",
         "repo": "fudo-clojure",
-        "rev": "65bf45b72f783fe5c962c9d413685fbc0cd69779",
+        "rev": "ede48a3e1cd60072676b9c57eb7a270bc40e1f01",
         "type": "github"
       },
       "original": {
@@ -489,11 +489,11 @@
     },
     "nixpkgs_5": {
       "locked": {
-        "lastModified": 1769900590,
-        "narHash": "sha256-I7Lmgj3owOTBGuauy9FL6qdpeK2umDoe07lM4V+PnyA=",
+        "lastModified": 1770617025,
+        "narHash": "sha256-1jZvgZoAagZZB6NwGRv2T2ezPy+X6EFDsJm+YSlsvEs=",
         "owner": "NixOS",
         "repo": "nixpkgs",
-        "rev": "41e216c0ca66c83b12ab7a98cc326b5db01db646",
+        "rev": "2db38e08fdadcc0ce3232f7279bab59a15b94482",
         "type": "github"
       },
       "original": {
