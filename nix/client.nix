@@ -44,7 +44,8 @@ in {
             '';
             domainList =
               concatStringsSep "," (map ({ domain, ... }: domain) domains);
-            serverList = concatStringsSep "," cfg.servers;
+            serverFlags =
+              concatStringsSep " " (map (s: "--servers=${s}") cfg.servers);
             aliasList = concatMap ({ domain, aliases, ... }:
               map (alias: "${alias}:${domain}") aliases) domains;
             aliasFlags =
@@ -70,7 +71,7 @@ in {
                 nexus-client \
                   --hostname=${cfg.hostname} \
                   --domains=${domainList} \
-                  --servers=${serverList} \
+                  ${serverFlags} \
                   --port=443 \
                   --key-file=$CREDENTIALS_DIRECTORY/hmac.key \
                   ${optionalString cfg.ipv4 "--ipv4"} \
