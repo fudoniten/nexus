@@ -158,8 +158,10 @@
         (doseq [hostname hostnames]
           (exec! http-client verbose (send-ipv6-request (assoc (base-req hostname) :ip ipv6)))))
       (send-sshfps! [_ sshfps]
-        (doseq [hostname hostnames]
-          (exec! http-client verbose (send-sshfps-request (assoc (base-req hostname) :sshfps sshfps)))))
+        ;; Only send SSHFPs for the canonical hostname (first in list), not
+        ;; aliases. A CNAME record is incompatible with SSHFP records for the
+        ;; same name, and having both prevents zone propagation.
+        (exec! http-client verbose (send-sshfps-request (assoc (base-req (first hostnames)) :sshfps sshfps))))
 
       (get-ipv4! [_]
         (exec! http-client verbose (get-ipv4-request (base-req (first hostnames)))))

@@ -243,3 +243,52 @@
                           (sign-request (:host1 host-keys))))
                  :status)
               401)))))
+
+(deftest sshfp-rejected-for-alias
+  (let [sshfps-stored (atom nil)
+        datastore (reify ds/IDataStore
+                    (set-host-ipv4   [_ _ _ ip]     ip)
+                    (set-host-ipv6   [_ _ _ ip]     ip)
+                    (set-host-sshfps [_ _ host sshfps]
+                      (reset! sshfps-stored {:host host :sshfps sshfps})
+                      sshfps)
+                    (set-host-batch  [_ _ host data]
+                      (when (:sshfps data)
+                        (reset! sshfps-stored {:host host :sshfps (:sshfps data)}))
+                      data)
+                    (get-host-ipv4   [_ _ _] nil)
+                    (get-host-ipv6   [_ _ _] nil)
+                    (get-host-sshfps [_ _ _] nil))
+        host-keys {:host0 (gen-key)}
+        ;; alias0.test.com is an alias for host0
+        mapper (reify mapper/IHostAliasMap
+                 (get-host [_ host domain]
+                   (if (= (format "%s.%s" (name host) (name domain))
+                          "alias0.test.com")
+                     :host0
+                     (keyword host))))
+        auther (auth/make-authenticator host-keys false)
+        app    (srv/create-app :host-authenticator auther
+                               :data-store    datastore
+                               :host-mapper   mapper
+                               :max-delay     5)]
+
+    (testing "sshfp-set-on-canonical-host-succeeds"
+      (reset! sshfps-stored nil)
+      (let [sshfp (gen-sshfp)
+            resp  (app (-> (ring/request :put "/api/v2/domain/test.com/host/host0/sshfps")
+                           (ring/body sshfp)
+                           (sign-request (:host0 host-keys))))]
+        (is (= 200 (:status resp)))
+        (is (some? @sshfps-stored) "SSHFPs should be stored for canonical host")))
+
+    (testing "sshfp-set-on-alias-is-dropped"
+      (reset! sshfps-stored nil)
+      (let [sshfp (gen-sshfp)
+            resp  (app (-> (ring/request :put "/api/v2/domain/test.com/host/alias0/sshfps")
+                           (ring/body sshfp)
+                           (sign-request (:host0 host-keys))))]
+        (is (= 200 (:status resp)) "Should return 200 for backward compatibility")
+        (is (str/includes? (:body resp) "warning") "Response should contain a warning")
+        (is (str/includes? (:body resp) "CNAME") "Warning should mention CNAME incompatibility")
+        (is (nil? @sshfps-stored) "SSHFPs should NOT be stored for alias")))))
