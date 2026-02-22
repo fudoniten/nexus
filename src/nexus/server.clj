@@ -64,24 +64,40 @@
 (defn- valid-sshfp? [sshfp]
   (not (nil? (re-matches #"^[12346] [12] [0-9a-fA-F]{16,256}$" sshfp))))
 
+(defn- alias?
+  "Returns true if the host is an alias (CNAME) rather than a canonical hostname.
+  A host is an alias when the host-mapper resolves it to a different canonical name."
+  [host-mapper host domain]
+  (not= (keyword host) (host-map/get-host host-mapper host domain)))
+
 (defn- set-host-sshfps
-  "Handler for setting a host's SSHFP records"
-  [store metrics-registry]
+  "Handler for setting a host's SSHFP records.
+  Drops SSHFP records for aliases (CNAMEs) with a warning, since CNAME and
+  SSHFP records for the same name are incompatible and prevent zone propagation."
+  [store metrics-registry host-mapper]
   (fn [{:keys [payload]
        {:keys [host domain]} :path-params}]
     (try+
-     (let [;; If payload is a string, split by newlines; otherwise treat as collection
-           sshfp-lines (if (string? payload)
-                         (->> (str/split-lines payload)
-                              (map str/trim)
-                              (filter #(not (str/blank? %))))
-                         payload)]
-       (if (not (every? valid-sshfp? sshfp-lines))
-         {:status 400 :body (str "rejected: invalid sshfp: "
-                                 (some (comp not valid-sshfp?) sshfp-lines))}
-         (do (store/set-host-sshfps store domain host sshfp-lines)
-             (metrics/inc-counter! metrics-registry :sshfp-updates)
-             {:status 200 :body (str/join "\n" sshfp-lines)})))
+     (if (alias? host-mapper host domain)
+       (do (log/warn! {:event "sshfp-rejected-for-alias"
+                       :domain domain
+                       :host host
+                       :reason "CNAME and SSHFP records are incompatible"})
+           {:status 200
+            :body (str "warning: SSHFP records dropped for alias " host "." domain
+                       " (CNAME and SSHFP records are incompatible)")})
+       (let [;; If payload is a string, split by newlines; otherwise treat as collection
+             sshfp-lines (if (string? payload)
+                           (->> (str/split-lines payload)
+                                (map str/trim)
+                                (filter #(not (str/blank? %))))
+                           payload)]
+         (if (not (every? valid-sshfp? sshfp-lines))
+           {:status 400 :body (str "rejected: invalid sshfp: "
+                                   (some (comp not valid-sshfp?) sshfp-lines))}
+           (do (store/set-host-sshfps store domain host sshfp-lines)
+               (metrics/inc-counter! metrics-registry :sshfp-updates)
+               {:status 200 :body (str/join "\n" sshfp-lines)}))))
      (catch Exception e
        (log/log-error "set-host-sshfps-failed" e
                      {:domain domain
@@ -138,13 +154,16 @@
         :body "Internal server error"}))))
 
 (defn- set-host-batch
-  "Handler for batch updating multiple record types for a host"
-  [store metrics-registry]
+  "Handler for batch updating multiple record types for a host.
+  Silently drops SSHFP records for aliases (CNAMEs) with a warning, since CNAME
+  and SSHFP records for the same name are incompatible."
+  [store metrics-registry host-mapper]
   (fn [{:keys [payload]
        {:keys [host domain]} :path-params}]
     (try+
      (let [errors (atom [])
-           validated-data (atom {})]
+           validated-data (atom {})
+           is-alias (alias? host-mapper host domain)]
        ;; Validate IPv4 if present
        (when-let [ipv4-str (:ipv4 payload)]
          (try
@@ -154,7 +173,7 @@
                (swap! errors conj (format "not a valid IPv4: %s" ipv4-str))))
            (catch IllegalArgumentException _
              (swap! errors conj (format "failed to parse IPv4: %s" ipv4-str)))))
-       
+
        ;; Validate IPv6 if present
        (when-let [ipv6-str (:ipv6 payload)]
          (try
@@ -164,20 +183,25 @@
                (swap! errors conj (format "not a valid IPv6: %s" ipv6-str))))
            (catch IllegalArgumentException _
              (swap! errors conj (format "failed to parse IPv6: %s" ipv6-str)))))
-       
-        ;; Validate SSHFPs if present
+
+        ;; Validate SSHFPs if present, but drop for aliases
         (when-let [sshfps (:sshfps payload)]
-          (let [;; If sshfps is a string, split by newlines; otherwise treat as collection
-                sshfp-lines (if (string? sshfps)
-                              (->> (str/split-lines sshfps)
-                                   (map str/trim)
-                                   (filter #(not (str/blank? %))))
-                              sshfps)]
-            (if (every? valid-sshfp? sshfp-lines)
-              (swap! validated-data assoc :sshfps sshfp-lines)
-              (swap! errors conj (str "invalid sshfp records: "
-                                      (filter (comp not valid-sshfp?) sshfp-lines))))))
-       
+          (if is-alias
+            (log/warn! {:event "sshfp-dropped-from-batch-for-alias"
+                        :domain domain
+                        :host host
+                        :reason "CNAME and SSHFP records are incompatible"})
+            (let [;; If sshfps is a string, split by newlines; otherwise treat as collection
+                  sshfp-lines (if (string? sshfps)
+                                (->> (str/split-lines sshfps)
+                                     (map str/trim)
+                                     (filter #(not (str/blank? %))))
+                                sshfps)]
+              (if (every? valid-sshfp? sshfp-lines)
+                (swap! validated-data assoc :sshfps sshfp-lines)
+                (swap! errors conj (str "invalid sshfp records: "
+                                        (filter (comp not valid-sshfp?) sshfp-lines)))))))
+
         ;; Return errors if any validation failed
         (if (seq @errors)
           {:status 400 :body {:errors @errors}}
@@ -449,7 +473,7 @@
                                      :get {:handler (get-host-ipv4 data-store)}}]
                          ["/ipv6"   {:put {:handler (set-host-ipv6 data-store metrics-registry)}
                                      :get {:handler (get-host-ipv6 data-store)}}]
-                         ["/sshfps" {:put {:handler (set-host-sshfps data-store metrics-registry)}
+                         ["/sshfps" {:put {:handler (set-host-sshfps data-store metrics-registry host-mapper)}
                                      :get {:handler (get-host-sshfps data-store)}}]
-                         ["/batch"  {:put {:handler (set-host-batch data-store metrics-registry)}}]]]]]]])
+                         ["/batch"  {:put {:handler (set-host-batch data-store metrics-registry host-mapper)}}]]]]]]])
      (ring/create-default-handler))))
