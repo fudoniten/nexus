@@ -10,7 +10,10 @@
     };
     fudo-clojure = {
       url = "github:fudoniten/fudo-clojure";
-      inputs.nixpkgs.follows = "nixpkgs";
+      inputs = {
+        nixpkgs.follows = "nixpkgs";
+        helpers.follows = "helpers";
+      };
     };
   };
 
