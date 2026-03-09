@@ -9,7 +9,8 @@
       inputs.nixpkgs.follows = "nixpkgs";
     };
     fudo-clojure = {
-      url = "github:fudoniten/fudo-clojure";
+      url =
+        "github:fudoniten/fudo-clojure/a32e527a6db2962f29bbbe33c1c3475c13198a08";
       inputs = {
         nixpkgs.follows = "nixpkgs";
         helpers.follows = "helpers";
@@ -71,8 +72,10 @@
 
           # Update deps-lock.json (without test dependencies)
           updateDeps = pkgs.mkShell {
-            buildInputs = with helpers.legacyPackages."${system}";
-              [ (updateClojureDeps { deps = cljLibs; }) ];
+            buildInputs = with helpers.legacyPackages."${system}"; [
+              (updateClojureDeps { deps = cljLibs; })
+              update-git-deps
+            ];
           };
 
           # Update deps-lock.json including test dependencies
