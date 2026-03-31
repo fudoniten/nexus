@@ -300,17 +300,18 @@
          :body "Failed to generate metrics"}))))
 
 (defn- decode-body
-  "Middleware to parse the request body as JSON or plain text based on content-type"
+  "Middleware to parse the request body. Attempts JSON parsing first;
+  falls back to plain text if the body is not valid JSON."
   [handler]
-  (fn [{:keys [body headers] :as req}]
+  (fn [{:keys [body] :as req}]
     (if body
       (let [body-str (slurp body)
-            content-type (get headers :content-type "text/plain")
-            payload (cond
-                      (= body-str "") {}
-                      (str/includes? content-type "application/json")
-                      (json/read-str body-str {:key-fn keyword})
-                      :else body-str)]
+            payload (if (= body-str "")
+                      {}
+                      (try
+                        (json/read-str body-str {:key-fn keyword})
+                        (catch Exception _
+                          body-str)))]
         (handler (-> req
                      (assoc :payload payload)
                      (assoc :body-str body-str))))
