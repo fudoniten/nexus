@@ -45,11 +45,18 @@ in {
             "--listen-port=${toString cfg.internal-port}"
           ] ++ (optional cfg.verbose "--verbose")));
 
-        ExecStartPre = let
-          ncCmd =
-            "${pkgs.netcat}/bin/nc -z ${db-cfg.host} ${toString db-cfg.port}";
-        in pkgs.writeShellScript "pdns-initialize-db-prep.sh"
-        "${pkgs.bash}/bin/bash -c 'until ${ncCmd}; do sleep 1; done;'";
+        ExecStartPre = [
+          (pkgs.writeShellScript "nexus-wait-for-secrets.sh" ''
+            until [ -f ${cfg.client-keys-file} ] && [ -f ${cfg.database.password-file} ]; do
+              sleep 1
+            done
+          '')
+          (let
+            ncCmd =
+              "${pkgs.netcat}/bin/nc -z ${db-cfg.host} ${toString db-cfg.port}";
+          in pkgs.writeShellScript "pdns-initialize-db-prep.sh"
+            "${pkgs.bash}/bin/bash -c 'until ${ncCmd}; do sleep 1; done;'")
+        ];
 
         LoadCredential = [
           "db.passwd:${cfg.database.password-file}"
@@ -80,8 +87,7 @@ in {
         SecureBits = "keep-caps";
         Restart = "always";
       };
-      unitConfig.ConditionPathExists =
-        [ cfg.database.password-file cfg.client-keys-file ];
     };
+
   };
 }
