@@ -233,17 +233,20 @@
 
 (defn- create-challenge-record
   "Handler for creating a new ACME challenge record"
-  [store metrics-registry]
-  (fn [{{:keys [host secret]}         :payload
+  [store metrics-registry verbose]
+  (fn [{payload                       :payload
        {:keys [domain challenge-id]} :path-params}]
-    (try+
-     (do (store/create-challenge-record store domain host challenge-id secret)
-         (metrics/inc-counter! metrics-registry :challenge-creates)
-         {:status 200 :body (str challenge-id)})
-     (catch Exception e
-       {:status 500
-        :body {:error (format "an unknown error has occured: %s"
-                              (.toString e))}}))))
+    (let [{:keys [host secret]} payload]
+      (when verbose
+        (println (format "challenge payload keys: %s" (keys payload))))
+      (try+
+       (do (store/create-challenge-record store domain host challenge-id secret)
+           (metrics/inc-counter! metrics-registry :challenge-creates)
+           {:status 200 :body (str challenge-id)})
+       (catch Exception e
+         {:status 500
+          :body {:error (format "an unknown error has occured: %s"
+                                (.toString e))}})))))
 
 (defn- delete-challenge-record
   "Handler for deleting an ACME challenge record"
@@ -465,7 +468,7 @@
                        ["/list" {:get {:handler (get-challenge-records data-store)}}]]
                       ["/challenge" {:middleware [(make-challenge-signature-authenticator verbose challenge-authenticator metrics-registry)
                                                   (make-timing-validator max-delay)]}
-                       ["/:challenge-id" {:put    {:handler (create-challenge-record data-store metrics-registry)}
+                       ["/:challenge-id" {:put    {:handler (create-challenge-record data-store metrics-registry verbose)}
                                           :delete {:handler (delete-challenge-record data-store metrics-registry)}}]]
                        ["/host" {:middleware [(make-host-signature-authenticator verbose host-authenticator host-mapper metrics-registry)
                                               (make-timing-validator max-delay)]}
