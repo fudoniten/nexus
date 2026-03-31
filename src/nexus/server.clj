@@ -233,17 +233,20 @@
 
 (defn- create-challenge-record
   "Handler for creating a new ACME challenge record"
-  [store metrics-registry]
-  (fn [{{:keys [host secret]}         :payload
+  [store metrics-registry verbose]
+  (fn [{payload                       :payload
        {:keys [domain challenge-id]} :path-params}]
-    (try+
-     (do (store/create-challenge-record store domain host challenge-id secret)
-         (metrics/inc-counter! metrics-registry :challenge-creates)
-         {:status 200 :body (str challenge-id)})
-     (catch Exception e
-       {:status 500
-        :body {:error (format "an unknown error has occured: %s"
-                              (.toString e))}}))))
+    (let [{:keys [host secret]} payload]
+      (when verbose
+        (println (format "challenge payload keys: %s" (keys payload))))
+      (try+
+       (do (store/create-challenge-record store domain host challenge-id secret)
+           (metrics/inc-counter! metrics-registry :challenge-creates)
+           {:status 200 :body (str challenge-id)})
+       (catch Exception e
+         {:status 500
+          :body {:error (format "an unknown error has occured: %s"
+                                (.toString e))}})))))
 
 (defn- delete-challenge-record
   "Handler for deleting an ACME challenge record"
@@ -300,17 +303,18 @@
          :body "Failed to generate metrics"}))))
 
 (defn- decode-body
-  "Middleware to parse the request body as JSON or plain text based on content-type"
+  "Middleware to parse the request body. Attempts JSON parsing first;
+  falls back to plain text if the body is not valid JSON."
   [handler]
-  (fn [{:keys [body headers] :as req}]
+  (fn [{:keys [body] :as req}]
     (if body
       (let [body-str (slurp body)
-            content-type (get headers :content-type "text/plain")
-            payload (cond
-                      (= body-str "") {}
-                      (str/includes? content-type "application/json")
-                      (json/read-str body-str {:key-fn keyword})
-                      :else body-str)]
+            payload (if (= body-str "")
+                      {}
+                      (try
+                        (json/read-str body-str {:key-fn keyword})
+                        (catch Exception _
+                          body-str)))]
         (handler (-> req
                      (assoc :payload payload)
                      (assoc :body-str body-str))))
@@ -464,7 +468,7 @@
                        ["/list" {:get {:handler (get-challenge-records data-store)}}]]
                       ["/challenge" {:middleware [(make-challenge-signature-authenticator verbose challenge-authenticator metrics-registry)
                                                   (make-timing-validator max-delay)]}
-                       ["/:challenge-id" {:put    {:handler (create-challenge-record data-store metrics-registry)}
+                       ["/:challenge-id" {:put    {:handler (create-challenge-record data-store metrics-registry verbose)}
                                           :delete {:handler (delete-challenge-record data-store metrics-registry)}}]]
                        ["/host" {:middleware [(make-host-signature-authenticator verbose host-authenticator host-mapper metrics-registry)
                                               (make-timing-validator max-delay)]}
