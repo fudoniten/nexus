@@ -412,13 +412,15 @@ in {
         # ============================================================================
         # Serial Increment Service (Manual/Timer Triggered)
         # ============================================================================
-        # Manually increments SOA serial for all zones
-        # NOTE: Usually not needed due to the database trigger, but useful for forcing updates
+        # Checks whether zone records have changed (via the notified_serial DB trigger),
+        # increments the SOA serial for changed zones, and notifies secondaries.
+        # Combines what were previously separate increment-serial and notify jobs so
+        # that notify always runs immediately after the increment with no gap.
         nexus-powerdns-increment-serial = {
-          description = "Manually increment PowerDNS zone serials";
+          description = "Detect PowerDNS zone changes, increment serials, and notify secondaries";
           requires = [ "nexus-powerdns.service" ];
           after = [ "nexus-powerdns.service" ];
-          path = with pkgs; [ pdns ];
+          path = with pkgs; [ pdns postgresql ];
           serviceConfig = let
             genConfig = genPdnsConfig {
               target-dir = "$RUNTIME_DIRECTORY";
@@ -429,16 +431,52 @@ in {
               db-user = cfg.database.user;
               db-password-file = "$CREDENTIALS_DIRECTORY/db.passwd";
             };
+            zones = mapAttrsToList (_: opts: opts.domain-name) config.nexus.domains;
+            # For each zone: compare notified_serial (bumped by DB trigger on record changes)
+            # against our state file. Only increment SOA serial when changes are detected.
+            zoneCheckScript = zone: ''
+              NOTIFIED=$(psql -h ${db-cfg.host} -U ${cfg.database.user} -d ${db-cfg.database} -t -c \
+                "SELECT notified_serial FROM domains WHERE name='${zone}'" | tr -d '[:space:]')
+              STATE_FILE="$STATE_DIRECTORY/${zone}_notified_serial"
+              if [[ ! -f "$STATE_FILE" ]]; then
+                echo "First run for ${zone}: notified_serial=$NOTIFIED, incrementing serial as baseline"
+                echo "$NOTIFIED" > "$STATE_FILE"
+                pdnsutil --config-dir=$RUNTIME_DIRECTORY increase-serial ${zone}
+                NEEDS_NOTIFY=1
+              else
+                STORED=$(cat "$STATE_FILE")
+                if [[ "$STORED" != "$NOTIFIED" ]]; then
+                  echo "Zone ${zone}: changes detected (notified_serial $STORED -> $NOTIFIED)"
+                  echo "$NOTIFIED" > "$STATE_FILE"
+                  pdnsutil --config-dir=$RUNTIME_DIRECTORY increase-serial ${zone}
+                  NEEDS_NOTIFY=1
+                else
+                  echo "Zone ${zone}: no changes detected"
+                fi
+              fi
+            '';
+            notifyCmds = concatStringsSep "\n" (concatLists (map (zone:
+              map (ip: ''
+                echo "Notifying ${ip} of updates to ${zone}"
+                pdns_notify ${ip} ${zone}
+              '') cfg.secondary-servers) zones));
           in {
             ExecStart =
               pkgs.writeShellScript "nexus-powerdns-increment-serial.sh" ''
                 ${genConfig}
-                ${concatStringsSep "\n" (mapAttrsToList (domain: _: ''
-                  echo "Incrementing serial for zone ${domain}"
-                  pdnsutil --config-dir=$RUNTIME_DIRECTORY increase-serial ${domain}
-                '') config.nexus.domains)}
+                export PGPASSWORD=$(cat $CREDENTIALS_DIRECTORY/db.passwd)
+                NEEDS_NOTIFY=0
+
+                ${concatStringsSep "\n" (map zoneCheckScript zones)}
+
+                if [[ $NEEDS_NOTIFY -eq 1 ]]; then
+                  ${notifyCmds}
+                fi
+
+                unset PGPASSWORD
               '';
             RuntimeDirectory = "nexus-powerdns-increment-serial";
+            StateDirectory = "nexus-powerdns-increment-serial";
             LoadCredential = "db.passwd:${cfg.database.password-file}";
             Type = "oneshot";
           };
@@ -592,30 +630,18 @@ in {
       # Systemd Timers
       # ============================================================================
       timers = {
-        # Run serial increment hourly (usually unnecessary due to trigger)
+        # Hourly change-detection, serial increment, and notify.
+        # Uses OnCalendar so it reschedules correctly for oneshot services.
+        # Notify is handled inline by the service itself (not a separate timer).
         nexus-powerdns-increment-serial = {
-          description = "Timer for manual SOA serial increments";
+          description = "Timer for PowerDNS zone change detection and serial increment";
           wantedBy = [ "timers.target" ];
           requires = [ "nexus-powerdns.service" ];
           after = [ "nexus-powerdns.service" ];
           timerConfig = {
-            OnBootSec = "5m";
-            OnUnitActivateSec = "1h";
+            OnCalendar = "hourly";
+            Persistent = true;
             Unit = "nexus-powerdns-increment-serial.service";
-          };
-        };
-
-        # Legacy manual notification timer (kept for compatibility)
-        # This is now superseded by the automatic check-updates service
-        nexus-powerdns-notify = {
-          description = "Timer for manual secondary DNS notifications";
-          wantedBy = [ "timers.target" ];
-          requires = [ "nexus-powerdns.service" ];
-          after = [ "nexus-powerdns.service" ];
-          timerConfig = {
-            OnBootSec = "1m";
-            OnUnitActivateSec = "30m";
-            Unit = "nexus-powerdns-notify.service";
           };
         };
 
@@ -626,15 +652,14 @@ in {
           requires = [ "nexus-powerdns.service" ];
           after = [ "nexus-powerdns.service" ];
           timerConfig = {
-            OnBootSec = "1m";
-            OnUnitActivateSec = "1d";
+            OnCalendar = "daily";
+            Persistent = true;
             Unit = "nexus-clear-challenges.service";
           };
         };
 
-        # IMPORTANT: This is the key timer for automatic secondary DNS updates
-        # Runs every 10 minutes to detect changes and notify secondaries
-        # You can reduce this interval for faster propagation (e.g., "5m")
+        # Runs every 5 minutes to detect changes and notify secondaries.
+        # Uses OnCalendar so it reschedules correctly for oneshot services.
         nexus-powerdns-check-updates = {
           description =
             "Timer for automatic zone change detection and notification";
@@ -642,9 +667,8 @@ in {
           requires = [ "nexus-powerdns.service" ];
           after = [ "nexus-powerdns.service" ];
           timerConfig = {
-            OnBootSec = "2m"; # Check 2 minutes after boot
-            OnUnitActivateSec =
-              "5m"; # Then check every 5 minutes (reduced from 10m)
+            OnCalendar = "*:0/5";
+            Persistent = true;
             Unit = "nexus-powerdns-check-updates.service";
           };
         };
