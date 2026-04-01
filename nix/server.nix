@@ -46,11 +46,13 @@ in {
           ] ++ (optional cfg.verbose "--verbose")));
 
         ExecStartPre = [
-          (pkgs.writeShellScript "nexus-wait-for-secrets.sh" ''
+          ("+${pkgs.writeShellScript "nexus-wait-for-secrets.sh" ''
             until [ -f ${cfg.client-keys-file} ] && [ -f ${cfg.database.password-file} ]; do
-              sleep 1
+              echo "nexus-server: waiting for secret files to appear..."
+              sleep 5
             done
-          '')
+            echo "nexus-server: secret files found, continuing."
+          ''}")
           (let
             ncCmd =
               "${pkgs.netcat}/bin/nc -z ${db-cfg.host} ${toString db-cfg.port}";
