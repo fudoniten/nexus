@@ -62,6 +62,7 @@ in {
             serviceConfig = {
               Type = "oneshot";
               DynamicUser = true;
+              StateDirectory = "nexus-client";
               RuntimeDirectory = "nexus-${type}-client";
               LoadCredential = [ "hmac.key:${cfg.hmac-key-file}" ]
                 ++ (mapAttrsToList (file: path: "${file}:${path}") sshKeyMap);
