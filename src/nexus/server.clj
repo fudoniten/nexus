@@ -153,6 +153,23 @@
        {:status 500
         :body "Internal server error"}))))
 
+(defn- get-host-batch
+  "Handler for retrieving all record types for a host in a single response"
+  [store]
+  (fn [{{:keys [host domain]} :path-params}]
+    (try+
+     (let [ipv4   (store/get-host-ipv4 store domain host)
+           ipv6   (store/get-host-ipv6 store domain host)
+           sshfps (store/get-host-sshfps store domain host)]
+       {:status 200
+        :body (cond-> {}
+                ipv4   (assoc :ipv4 (str ipv4))
+                ipv6   (assoc :ipv6 (str ipv6))
+                sshfps (assoc :sshfps (vec sshfps)))})
+     (catch Exception e
+       (log/log-error "get-host-batch-failed" e {:domain domain :host host})
+       {:status 500 :body "Internal server error"}))))
+
 (defn- set-host-batch
   "Handler for batch updating multiple record types for a host.
   Silently drops SSHFP records for aliases (CNAMEs) with a warning, since CNAME
@@ -479,5 +496,6 @@
                                      :get {:handler (get-host-ipv6 data-store)}}]
                          ["/sshfps" {:put {:handler (set-host-sshfps data-store metrics-registry host-mapper)}
                                      :get {:handler (get-host-sshfps data-store)}}]
-                         ["/batch"  {:put {:handler (set-host-batch data-store metrics-registry host-mapper)}}]]]]]]])
+                         ["/batch"  {:put {:handler (set-host-batch data-store metrics-registry host-mapper)}
+                                    :get {:handler (get-host-batch data-store)}}]]]]]]])
      (ring/create-default-handler))))
