@@ -18,7 +18,7 @@
 (defn get-all-ips []
   "Get all IP addresses from all network interfaces using ip addr command"
   (try
-    (let [result (process/shell {:out :string :continue true} "ip" "addr")]
+    (let [result (process/shell {:out :string :err :string :continue true} "ip" "addr")]
       (if (zero? (:exit result))
         (->> (:out result)
              str/split-lines
@@ -30,9 +30,13 @@
                          (str/starts-with? line "inet6 ")
                          (second (re-find #"inet6 ([0-9a-f:]+)" line))))))
              (remove nil?))
-        []))
-    (catch Exception _
-      [])))
+        (throw (ex-info (str "'ip addr' failed with exit code " (:exit result))
+                        {:exit (:exit result) :stderr (:err result)}))))
+    (catch clojure.lang.ExceptionInfo e
+      (throw e))
+    (catch Exception e
+      (throw (ex-info (str "Failed to run 'ip addr': " (.getMessage e))
+                      {:cause e})))))
 
 (defn ipv4? [ip-str]
   "Check if IP string is IPv4"
