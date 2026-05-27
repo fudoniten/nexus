@@ -223,9 +223,14 @@
         (if (seq @errors)
           {:status 400 :body {:errors @errors}}
           ;; Otherwise perform batch update
-          (do (store/set-host-batch store domain host @validated-data)
-              (metrics/inc-counter! metrics-registry :batch-updates)
-              {:status 200 :body (update-vals @validated-data str)})))
+          (let [data @validated-data]
+            (store/set-host-batch store domain host data)
+            (metrics/inc-counter! metrics-registry :batch-updates)
+            {:status 200
+             :body (cond-> {}
+                     (:ipv4 data)   (assoc :ipv4 (str (:ipv4 data)))
+                     (:ipv6 data)   (assoc :ipv6 (str (:ipv6 data)))
+                     (:sshfps data) (assoc :sshfps (:sshfps data)))}))))
      (catch Exception e
        (log/log-error "set-host-batch-failed" e
                      {:domain domain
