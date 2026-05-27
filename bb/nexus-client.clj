@@ -148,8 +148,9 @@
 ;; --- DDNS Update ---
 
 (defn build-batch-url [server port domain host]
-  (format "http://%s:%d/api/v2/domain/%s/host/%s/batch"
-          server port domain host))
+  (let [scheme (if (= port 443) "https" "http")]
+    (format "%s://%s:%d/api/v2/domain/%s/host/%s/batch"
+            scheme server port domain host)))
 
 (defn send-batch-update!
   [{:keys [server port domain hostname hmac-key verbose]} data]
