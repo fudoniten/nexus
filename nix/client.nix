@@ -58,7 +58,7 @@ in {
             description = "Nexus DDNS Client - one-shot update for ${type} IPs";
             after = [ "network-online.target" ];
             wants = [ "network-online.target" ];
-            path = [ nexus-client-script ] ++ (with pkgs; [ openssh babashka ]);
+            path = [ nexus-client-script ] ++ (with pkgs; [ openssh babashka iproute2 ]);
             serviceConfig = {
               Type = "oneshot";
               DynamicUser = true;
