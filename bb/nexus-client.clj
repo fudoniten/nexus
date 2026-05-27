@@ -5,7 +5,6 @@
             [babashka.cli :as cli]
             [babashka.process :as process]
             [clojure.string :as str]
-            [clojure.java.io :as io]
             [cheshire.core :as json])
   (:import [javax.crypto Mac]
            [javax.crypto.spec SecretKeySpec]
@@ -158,39 +157,34 @@
     (format "%s://%s:%d/api/v2/domain/%s/host/%s/batch"
             scheme server port domain host)))
 
+(defn fetch-server-state!
+  "Fetch the current state for a host from the server via GET /batch.
+   Returns the state map on success, nil if not found or unreachable."
+  [{:keys [server port domain hostname hmac-key verbose]}]
+  (let [url (build-batch-url server port domain hostname)
+        response (make-authenticated-request :get url "" hmac-key verbose)]
+    (when verbose
+      (println (format "Server state from %s for %s.%s: status=%d"
+                       server hostname domain (:status response))))
+    (when (= 200 (:status response))
+      (json/parse-string (:body response) true))))
+
+(defn states-match?
+  "Compare local state to server state. SSHFPs are compared as sets (order-independent)."
+  [local server]
+  (and server
+       (= (:ipv4 local) (:ipv4 server))
+       (= (:ipv6 local) (:ipv6 server))
+       (= (set (:sshfps local)) (set (:sshfps server)))))
+
 (defn send-batch-update!
   [{:keys [server port domain hostname hmac-key verbose]} data]
   "Send a batch update to the server"
   (let [url (build-batch-url server port domain hostname)
         body (json/generate-string data)]
-    (println (str "Sending batch update to " server " for " hostname "." domain))
     (when verbose
       (println "Data:" data))
     (make-authenticated-request :put url body hmac-key verbose)))
-
-;; --- State Management ---
-
-(def state-file-path "/var/lib/nexus-client/last-state.edn")
-
-(defn ensure-state-dir! []
-  (io/make-parents state-file-path))
-
-(defn load-last-state []
-  "Load the last reported state from disk"
-  (try
-    (when (.exists (io/file state-file-path))
-      (read-string (slurp state-file-path)))
-    (catch Exception _
-      nil)))
-
-(defn save-state! [state]
-  "Save the current state to disk"
-  (ensure-state-dir!)
-  (spit state-file-path (pr-str state)))
-
-(defn state-changed? [old-state new-state]
-  "Check if state has changed"
-  (not= old-state new-state))
 
 ;; --- SSHFP Processing ---
 
@@ -221,55 +215,52 @@
       (and (:ipv6 opts) get-v6) (assoc :ipv6 get-v6)
       (seq sshfps) (assoc :sshfps sshfps))))
 
-(defn report-update! [opts server domain hostname label]
-  "Send one batch update and print result. Returns true on success, false on failure."
+(defn sync-host!
+  "Sync one hostname to one server. Skips PUT if server already has the correct state.
+   Returns true on success (including already in sync), false on failure."
+  [opts server domain hostname label current-state]
   (let [config (assoc opts :server server :domain domain :hostname hostname)
-        response (send-batch-update! config (::current-state opts))]
-    (when (:verbose opts)
-      (println (format "Response from %s for %s.%s%s: status=%d"
-                       server hostname domain label (:status response))))
-    (if (= 200 (:status response))
-      true
-      (do (binding [*out* *err*]
-            (println (format "ERROR: Failed to update %s.%s on %s: %s"
-                             hostname domain server (:body response))))
-          false))))
-
-(defn report-to-servers!
-  "Report current state to all configured servers and domains. Returns number of failures."
-  [opts current-state]
-  (let [opts (assoc opts ::current-state current-state)]
-    (->> (for [domain (:domains opts)
-               server (:servers opts)]
-           (let [aliases (get-in opts [:aliases domain] [])]
-             (cons (report-update! opts server domain (:hostname opts) "")
-                   (map #(report-update! opts server domain % " (alias)") aliases))))
-         (apply concat)
-         (remove true?)
-         count)))
-
-(defn update-if-changed! [opts]
-  "Update DNS records only if state has changed. Returns number of failures."
-  (let [last-state (load-last-state)
-        current-state (get-current-state opts)]
-    (when (:verbose opts)
-      (println "Last state:" last-state)
-      (println "Current state:" current-state))
-    (if (state-changed? last-state current-state)
-      (do
-        (when (:verbose opts)
-          (println "State changed, updating servers..."))
-        (let [failures (report-to-servers! opts current-state)]
-          (if (zero? failures)
-            (do (save-state! current-state)
-                (println "Update completed successfully")
-                0)
-            (do (binding [*out* *err*]
-                  (println (format "Update completed with %d failure(s) -- state not saved" failures)))
-                failures))))
+        server-state (fetch-server-state! config)]
+    (if (states-match? current-state server-state)
       (do (when (:verbose opts)
-            (println "No changes detected, skipping update"))
-          0))))
+            (println (format "Already in sync on %s for %s.%s%s, skipping"
+                             server hostname domain label)))
+          true)
+      (do (println (format "Updating %s.%s%s on %s" hostname domain label server))
+          (let [response (send-batch-update! config current-state)]
+            (when (:verbose opts)
+              (println (format "Response: status=%d" (:status response))))
+            (if (= 200 (:status response))
+              true
+              (do (binding [*out* *err*]
+                    (println (format "ERROR: Failed to update %s.%s%s on %s: %s"
+                                     hostname domain label server (:body response))))
+                  false)))))))
+
+(defn sync-to-servers!
+  "Sync current state to all configured servers and domains. Returns number of failures."
+  [opts current-state]
+  (when (:verbose opts)
+    (println "Current state:" current-state))
+  (->> (for [domain (:domains opts)
+             server (:servers opts)]
+         (let [aliases (get-in opts [:aliases domain] [])]
+           (cons (sync-host! opts server domain (:hostname opts) "" current-state)
+                 (map #(sync-host! opts server domain % " (alias)" current-state) aliases))))
+       (apply concat)
+       (remove true?)
+       count))
+
+(defn run-update! [opts]
+  "Sync DNS records with all servers. Returns number of failures."
+  (let [current-state (get-current-state opts)
+        failures (sync-to-servers! opts current-state)]
+    (if (zero? failures)
+      (do (println "All records up to date")
+          0)
+      (do (binding [*out* *err*]
+            (println (format "Completed with %d failure(s)" failures)))
+          failures))))
 
 (defn parse-aliases [alias-strs]
   "Parse alias strings in format 'alias:domain' into a map of {domain [alias1 alias2...]}"
@@ -359,7 +350,7 @@
                             :ip-type ip-type
                             :aliases aliases-map)]
       (try
-        (let [failures (update-if-changed! final-opts)]
+        (let [failures (run-update! final-opts)]
           (System/exit (min failures 1)))
         (catch Exception e
           (binding [*out* *err*]
