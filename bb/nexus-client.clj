@@ -159,13 +159,17 @@
             scheme server port domain host)))
 
 (defn send-batch-update!
+  "Send a PUT update. On success returns parsed response body (the confirmed server state);
+   on failure returns a map with :error."
   [{:keys [server port domain hostname hmac-key verbose]} data]
-  "Send a batch update to the server"
-  (let [url (build-batch-url server port domain hostname)
+  (let [url  (build-batch-url server port domain hostname)
         body (json/generate-string data)]
     (when verbose
       (println "Data:" data))
-    (make-authenticated-request :put url body hmac-key verbose)))
+    (let [response (make-authenticated-request :put url body hmac-key verbose)]
+      (if (= 200 (:status response))
+        (json/parse-string (:body response) true)
+        {:error (:body response)}))))
 
 ;; --- Local State Cache ---
 
@@ -212,34 +216,38 @@
       (seq sshfps) (assoc :sshfps sshfps))))
 
 (defn update-host!
-  "Send a PUT for one hostname. Returns true on success, false on failure."
+  "Send a PUT for one hostname. Returns the server-confirmed state map on success, nil on failure."
   [opts server domain hostname label current-state]
-  (let [config (assoc opts :server server :domain domain :hostname hostname)
-        response (send-batch-update! config current-state)]
-    (when (:verbose opts)
-      (println (format "Response from %s for %s.%s%s: status=%d"
-                       server hostname domain label (:status response))))
-    (if (= 200 (:status response))
-      true
+  (let [config   (assoc opts :server server :domain domain :hostname hostname)
+        result   (send-batch-update! config current-state)]
+    (if (:error result)
       (do (binding [*out* *err*]
             (println (format "ERROR: Failed to update %s.%s%s on %s: %s"
-                             hostname domain label server (:body response))))
-          false))))
+                             hostname domain label server (:error result))))
+          nil)
+      (do (when (:verbose opts)
+            (println (format "Updated %s.%s%s on %s" hostname domain label server)))
+          result))))
 
 (defn update-all-servers!
-  "Send PUT to all servers and domains. Returns number of failures."
+  "Send PUT to all servers and domains.
+   Returns [failures confirmed-state] where confirmed-state is the server response
+   from the first successful main-hostname PUT (nil if all failed)."
   [opts current-state]
-  (->> (for [domain (:domains opts)
-             server (:servers opts)]
-         (let [aliases (get-in opts [:aliases domain] [])]
-           (cons (update-host! opts server domain (:hostname opts) "" current-state)
-                 (map #(update-host! opts server domain % " (alias)" current-state) aliases))))
-       (apply concat)
-       (remove true?)
-       count))
+  (reduce (fn [[failures confirmed] [server domain]]
+            (let [aliases (get-in opts [:aliases domain] [])
+                  main-result (update-host! opts server domain (:hostname opts) "" current-state)
+                  alias-failures (->> aliases
+                                      (map #(update-host! opts server domain % " (alias)" current-state))
+                                      (remove some?)
+                                      count)]
+              [(+ failures (if main-result 0 1) alias-failures)
+               (or confirmed main-result)]))
+          [0 nil]
+          (for [domain (:domains opts) server (:servers opts)] [server domain])))
 
 (defn run-update! [opts]
-  "Update DNS records if local state differs from the last successfully confirmed state.
+  "Update DNS records if local state differs from the cached confirmed server state.
    Returns number of failures."
   (let [cached-state  (load-cached-state)
         current-state (get-current-state opts)]
@@ -250,10 +258,10 @@
       (do (when (:verbose opts)
             (println "State unchanged, skipping update"))
           0)
-      (do (println (format "State changed, updating servers..."))
-          (let [failures (update-all-servers! opts current-state)]
+      (do (println "State changed, updating servers...")
+          (let [[failures confirmed] (update-all-servers! opts current-state)]
             (if (zero? failures)
-              (do (save-state! current-state)
+              (do (save-state! confirmed)
                   (println "Update completed successfully")
                   0)
               (do (binding [*out* *err*]
