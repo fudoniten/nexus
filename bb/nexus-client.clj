@@ -105,12 +105,18 @@
 (defn base64-encode [bytes]
   (.encodeToString (Base64/getEncoder) bytes))
 
-(defn hmac-sha512 [key-str message]
-  "Generate HMAC-SHA512 signature"
-  (let [key-bytes (.getBytes (str/trim key-str) "UTF-8")
-        secret-key (SecretKeySpec. key-bytes "HmacSHA512")
-        mac (Mac/getInstance "HmacSHA512")]
-    (.init mac secret-key)
+(defn decode-key
+  "Decode a key string in 'ALGO:BASE64' format (as produced by nexus-generate-key) into a SecretKeySpec."
+  [key-str]
+  (let [[algo encoded-key] (str/split (str/trim key-str) #":" 2)
+        key-bytes (.decode (Base64/getDecoder) encoded-key)]
+    (SecretKeySpec. key-bytes algo)))
+
+(defn hmac-sign [key-str message]
+  "Generate an HMAC signature using the encoded key string."
+  (let [key (decode-key key-str)
+        mac (doto (Mac/getInstance (.getAlgorithm key))
+              (.init key))]
     (base64-encode (.doFinal mac (.getBytes message "UTF-8")))))
 
 (defn build-request-string [method uri timestamp body]
@@ -128,7 +134,7 @@
   (let [timestamp (str (epoch-timestamp))
         uri (str "/" (str/join "/" (drop 3 (str/split url #"/"))))
         req-str (build-request-string method uri timestamp body)
-        signature (hmac-sha512 hmac-key req-str)]
+        signature (hmac-sign hmac-key req-str)]
     (when verbose
       (println (str "Making " (name method) " request to " url)))
     (try
@@ -157,8 +163,8 @@
   "Send a batch update to the server"
   (let [url (build-batch-url server port domain hostname)
         body (json/generate-string data)]
+    (println (str "Sending batch update to " server " for " hostname "." domain))
     (when verbose
-      (println (str "Sending batch update to " server " for " hostname "." domain))
       (println "Data:" data))
     (make-authenticated-request :put url body hmac-key verbose)))
 
@@ -215,36 +221,35 @@
       (and (:ipv6 opts) get-v6) (assoc :ipv6 get-v6)
       (seq sshfps) (assoc :sshfps sshfps))))
 
-(defn report-to-servers! [opts current-state]
-  "Report current state to all configured servers and domains"
-  (doseq [domain (:domains opts)
-          server (:servers opts)]
-    (let [config (assoc opts
-                        :server server
-                        :domain domain)
-          ;; Get aliases for this domain
-          aliases (get-in opts [:aliases domain] [])
-          ;; Report for main hostname
-          _ (let [response (send-batch-update! config current-state)]
-              (when (:verbose opts)
-                (println (format "Response from %s for %s.%s: status=%d"
-                                 server (:hostname opts) domain (:status response))))
-              (when (not= 200 (:status response))
-                (println (format "ERROR: Failed to update %s.%s on %s: %s"
-                                 (:hostname opts) domain server (:body response)))))]
-      ;; Report for each alias
-      (doseq [alias aliases]
-        (let [alias-config (assoc config :hostname alias)
-              response (send-batch-update! alias-config current-state)]
-          (when (:verbose opts)
-            (println (format "Response from %s for %s.%s (alias): status=%d"
-                             server alias domain (:status response))))
-          (when (not= 200 (:status response))
-            (println (format "ERROR: Failed to update alias %s.%s on %s: %s"
-                             alias domain server (:body response)))))))))
+(defn report-update! [opts server domain hostname label]
+  "Send one batch update and print result. Returns true on success, false on failure."
+  (let [config (assoc opts :server server :domain domain :hostname hostname)
+        response (send-batch-update! config (::current-state opts))]
+    (when (:verbose opts)
+      (println (format "Response from %s for %s.%s%s: status=%d"
+                       server hostname domain label (:status response))))
+    (if (= 200 (:status response))
+      true
+      (do (binding [*out* *err*]
+            (println (format "ERROR: Failed to update %s.%s on %s: %s"
+                             hostname domain server (:body response))))
+          false))))
+
+(defn report-to-servers!
+  "Report current state to all configured servers and domains. Returns number of failures."
+  [opts current-state]
+  (let [opts (assoc opts ::current-state current-state)]
+    (->> (for [domain (:domains opts)
+               server (:servers opts)]
+           (let [aliases (get-in opts [:aliases domain] [])]
+             (cons (report-update! opts server domain (:hostname opts) "")
+                   (map #(report-update! opts server domain % " (alias)") aliases))))
+         (apply concat)
+         (remove true?)
+         count)))
 
 (defn update-if-changed! [opts]
-  "Update DNS records only if state has changed"
+  "Update DNS records only if state has changed. Returns number of failures."
   (let [last-state (load-last-state)
         current-state (get-current-state opts)]
     (when (:verbose opts)
@@ -254,11 +259,17 @@
       (do
         (when (:verbose opts)
           (println "State changed, updating servers..."))
-        (report-to-servers! opts current-state)
-        (save-state! current-state)
-        (println "Update completed successfully"))
-      (when (:verbose opts)
-        (println "No changes detected, skipping update")))))
+        (let [failures (report-to-servers! opts current-state)]
+          (if (zero? failures)
+            (do (save-state! current-state)
+                (println "Update completed successfully")
+                0)
+            (do (binding [*out* *err*]
+                  (println (format "Update completed with %d failure(s) -- state not saved" failures)))
+                failures))))
+      (do (when (:verbose opts)
+            (println "No changes detected, skipping update"))
+          0))))
 
 (defn parse-aliases [alias-strs]
   "Parse alias strings in format 'alias:domain' into a map of {domain [alias1 alias2...]}"
@@ -348,10 +359,11 @@
                             :ip-type ip-type
                             :aliases aliases-map)]
       (try
-        (update-if-changed! final-opts)
-        (System/exit 0)
+        (let [failures (update-if-changed! final-opts)]
+          (System/exit (min failures 1)))
         (catch Exception e
-          (println "FATAL ERROR:" (.getMessage e))
+          (binding [*out* *err*]
+            (println "FATAL ERROR:" (.getMessage e)))
           (when (:verbose final-opts)
             (.printStackTrace e))
           (System/exit 1))))))
