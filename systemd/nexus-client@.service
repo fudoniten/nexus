@@ -7,6 +7,7 @@ Wants=network-online.target
 Type=oneshot
 DynamicUser=true
 RuntimeDirectory=nexus-client-%i
+CacheDirectory=nexus-client-%i
 
 # Credentials will be loaded from system configuration
 # LoadCredential=hmac.key:/path/to/hmac.key
@@ -23,7 +24,7 @@ ExecStart=/usr/bin/env bb /path/to/nexus-client.clj \
   --servers=${NEXUS_SERVERS} \
   --port=${NEXUS_PORT} \
   --key-file=${CREDENTIALS_DIRECTORY}/hmac.key \
-  --state-file=${RUNTIME_DIRECTORY}/state.edn \
+  --state-file=${CACHE_DIRECTORY}/state.edn \
   ${NEXUS_IPV4_FLAG} \
   ${NEXUS_IPV6_FLAG} \
   ${NEXUS_TYPE_FLAG} \

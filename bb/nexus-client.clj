@@ -321,7 +321,7 @@
              :default false
              :coerce :boolean}
    :state-file {:desc "Path to state cache file"
-               :default (str (or (System/getenv "RUNTIME_DIRECTORY") "/var/lib/nexus-client")
+               :default (str (or (System/getenv "CACHE_DIRECTORY") "/var/cache/nexus-client")
                              "/state.edn")}
    :verbose {:desc "Verbose output"
              :default false
