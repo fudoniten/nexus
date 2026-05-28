@@ -6,7 +6,8 @@
             [babashka.process :as process]
             [clojure.string :as str]
             [clojure.java.io :as io]
-            [cheshire.core :as json]
+            [clojure.edn :as edn]
+            [cheshire.core :as json])
   (:import [javax.crypto Mac]
            [javax.crypto.spec SecretKeySpec]
            [java.util Base64]
@@ -15,8 +16,9 @@
 
 ;; --- IP Detection ---
 
-(defn get-all-ips []
+(defn get-all-ips
   "Get all IP addresses from all network interfaces using ip addr command"
+  []
   (try
     (let [result (process/shell {:out :string :err :string :continue true} "ip" "addr")]
       (if (zero? (:exit result))
@@ -38,16 +40,19 @@
       (throw (ex-info (str "Failed to run 'ip addr': " (.getMessage e))
                       {:cause e})))))
 
-(defn ipv4? [ip-str]
+(defn ipv4?
   "Check if IP string is IPv4"
+  [ip-str]
   (re-matches #"^\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}$" ip-str))
 
-(defn ipv6? [ip-str]
+(defn ipv6?
   "Check if IP string is IPv6"
+  [ip-str]
   (str/includes? ip-str ":"))
 
-(defn private? [ip-str]
+(defn private?
   "Check if IP is private (RFC1918 for v4, ULA/link-local for v6)"
+  [ip-str]
   (or (re-matches #"^10\..+" ip-str)
       (re-matches #"^172\.(1[6-9]|2[0-9]|3[01])\..+" ip-str)
       (re-matches #"^192\.168\..+" ip-str)
@@ -55,12 +60,14 @@
       (re-matches #"^fe80:.+" ip-str)
       (re-matches #"^fd[0-9a-f]{2}:.+" ip-str)))
 
-(defn tailscale? [ip-str]
-  "Check if IP is Tailscale (100.x range for v4)"
-  (re-matches #"^100\.(6[4-9]|[7-9]\d|1[0-2]\d)\..+" ip-str))
+(defn tailscale?
+  "Check if IP is Tailscale (100.64.0.0/10 range)"
+  [ip-str]
+  (re-matches #"^100\.(6[4-9]|[7-9]\d|1[01]\d|12[0-7])\..+" ip-str))
 
-(defn public? [ip-str]
+(defn public?
   "Check if IP is public (not private, not loopback, not tailscale)"
+  [ip-str]
   (and (not (private? ip-str))
        (not (tailscale? ip-str))))
 
@@ -112,15 +119,17 @@
         key-bytes (.decode (Base64/getDecoder) encoded-key)]
     (SecretKeySpec. key-bytes algo)))
 
-(defn hmac-sign [key-str message]
+(defn hmac-sign
   "Generate an HMAC signature using the encoded key string."
+  [key-str message]
   (let [key (decode-key key-str)
         mac (doto (Mac/getInstance (.getAlgorithm key))
               (.init key))]
     (base64-encode (.doFinal mac (.getBytes message "UTF-8")))))
 
-(defn build-request-string [method uri timestamp body]
+(defn build-request-string
   "Build the request string for HMAC signing"
+  [method uri timestamp body]
   (str (str/upper-case (name method)) uri timestamp body))
 
 ;; --- HTTP Client ---
@@ -129,8 +138,8 @@
   (.getEpochSecond (Instant/now)))
 
 (defn make-authenticated-request
-  [method url body hmac-key verbose]
   "Make an authenticated HTTP request with HMAC signature"
+  [method url body hmac-key verbose]
   (let [timestamp (str (epoch-timestamp))
         uri (str "/" (str/join "/" (drop 3 (str/split url #"/"))))
         req-str (build-request-string method uri timestamp body)
@@ -178,7 +187,7 @@
 (defn load-cached-state []
   (try
     (when (.exists (io/file state-file-path))
-      (read-string (slurp state-file-path)))
+      (edn/read-string (slurp state-file-path)))
     (catch Exception _
       nil)))
 
@@ -188,8 +197,9 @@
 
 ;; --- SSHFP Processing ---
 
-(defn load-sshfps [sshfp-files]
+(defn load-sshfps
   "Load SSHFP records from files"
+  [sshfp-files]
   (when (seq sshfp-files)
     (->> sshfp-files
          (mapcat #(str/split-lines (slurp %)))
@@ -198,21 +208,22 @@
 
 ;; --- Main Logic ---
 
-(defn get-current-state [opts]
+(defn get-current-state
   "Get the current IP addresses and SSHFPs"
+  [opts]
   (let [ip-type (:ip-type opts)
-        get-v4 (case ip-type
-                 :public (get-public-ipv4)
-                 :private (get-private-ipv4)
-                 :tailscale (get-tailscale-ipv4))
-        get-v6 (case ip-type
-                 :public (get-public-ipv6)
-                 :private (get-private-ipv6)
-                 :tailscale (get-tailscale-ipv6))
+        v4 (case ip-type
+             :public (get-public-ipv4)
+             :private (get-private-ipv4)
+             :tailscale (get-tailscale-ipv4))
+        v6 (case ip-type
+             :public (get-public-ipv6)
+             :private (get-private-ipv6)
+             :tailscale (get-tailscale-ipv6))
         sshfps (load-sshfps (:sshfp-files opts))]
     (cond-> {}
-      (and (:ipv4 opts) get-v4) (assoc :ipv4 get-v4)
-      (and (:ipv6 opts) get-v6) (assoc :ipv6 get-v6)
+      (and (:ipv4 opts) v4) (assoc :ipv4 v4)
+      (and (:ipv6 opts) v6) (assoc :ipv6 v6)
       (seq sshfps) (assoc :sshfps sshfps))))
 
 (defn update-host!
@@ -246,9 +257,10 @@
           [0 nil]
           (for [domain (:domains opts) server (:servers opts)] [server domain])))
 
-(defn run-update! [opts]
+(defn run-update!
   "Update DNS records if local state differs from the cached confirmed server state.
    Returns number of failures."
+  [opts]
   (let [cached-state  (load-cached-state)
         current-state (get-current-state opts)]
     (when (:verbose opts)
@@ -268,8 +280,9 @@
                     (println (format "Update completed with %d failure(s) -- cache not updated, will retry" failures)))
                   failures)))))))
 
-(defn parse-aliases [alias-strs]
+(defn parse-aliases
   "Parse alias strings in format 'alias:domain' into a map of {domain [alias1 alias2...]}"
+  [alias-strs]
   (reduce (fn [acc alias-str]
             (let [[alias domain] (str/split alias-str #":")]
               (update acc domain (fnil conj []) alias)))
