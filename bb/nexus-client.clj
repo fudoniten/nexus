@@ -182,18 +182,16 @@
 
 ;; --- Local State Cache ---
 
-(def state-file-path "/var/lib/nexus-client/last-state.edn")
-
-(defn load-cached-state []
+(defn load-cached-state [state-file]
   (try
-    (when (.exists (io/file state-file-path))
-      (edn/read-string (slurp state-file-path)))
+    (when (.exists (io/file state-file))
+      (edn/read-string (slurp state-file)))
     (catch Exception _
       nil)))
 
-(defn save-state! [state]
-  (io/make-parents state-file-path)
-  (spit state-file-path (pr-str state)))
+(defn save-state! [state-file state]
+  (io/make-parents state-file)
+  (spit state-file (pr-str state)))
 
 ;; --- SSHFP Processing ---
 
@@ -261,7 +259,8 @@
   "Update DNS records if local state differs from the cached confirmed server state.
    Returns number of failures."
   [opts]
-  (let [cached-state  (load-cached-state)
+  (let [state-file    (:state-file opts)
+        cached-state  (load-cached-state state-file)
         current-state (get-current-state opts)]
     (when (:verbose opts)
       (println "Cached state:" cached-state)
@@ -273,7 +272,7 @@
       (do (println "State changed, updating servers...")
           (let [[failures confirmed] (update-all-servers! opts current-state)]
             (if (zero? failures)
-              (do (save-state! confirmed)
+              (do (save-state! state-file confirmed)
                   (println "Update completed successfully")
                   0)
               (do (binding [*out* *err*]
@@ -321,6 +320,9 @@
    :private {:desc "Report private IPs"
              :default false
              :coerce :boolean}
+   :state-file {:desc "Path to state cache file"
+               :default (str (or (System/getenv "RUNTIME_DIRECTORY") "/var/lib/nexus-client")
+                             "/state.edn")}
    :verbose {:desc "Verbose output"
              :default false
              :coerce :boolean}
