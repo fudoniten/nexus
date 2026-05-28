@@ -5,11 +5,8 @@
             [next.jdbc :as jdbc]
             [slingshot.slingshot :refer [throw+]]
             [nexus.datastore :as datastore]
-            [clojure.string :as str]
-            [clojure.pprint :refer [pprint]])
+            [clojure.string :as str])
   (:import [java.io StringWriter PrintWriter]))
-
-(defn pthru [o] (pprint o) o)
 
 (defn capture-stack-trace [e]  
   (let [string-writer (StringWriter.)
@@ -137,7 +134,7 @@
   "Insert a new IPv4 record for a host"
   [store params ip]
   (exec! store
-         (insert-host-ipv4-sql (pthru (assoc-domain-id store params)) ip)))
+         (insert-host-ipv4-sql (assoc-domain-id store params) ip)))
 
 (defn insert-host-ipv6
   "Insert a new IPv6 record for a host"
@@ -212,7 +209,7 @@
     (insert-host-ipv6 store params ip))
   ip)
 
-(defn set-host-sshpfs-impl
+(defn set-host-sshfps-impl
   "Set the SSHFP records for a host, deleting existing records first"
   [store params sshfps]
   (let [params-with-domid (assoc-domain-id store params)]
@@ -423,7 +420,7 @@
     (when verbose
       (println (format "setting sshfps for %s.%s: %s"
                        host domain sshfps)))
-    (set-host-sshpfs-impl self
+    (set-host-sshfps-impl self
                           {:domain domain :host host}
                           sshfps))
 
@@ -438,16 +435,14 @@
     (when verbose
       (println (format "batch update for %s.%s: %s"
                        host domain batch-data)))
-    (jdbc/with-transaction [tx (:datasource self)]
-      (let [params {:domain domain :host host}
-            results {}]
-        (when-let [ipv4 (:ipv4 batch-data)]
-          (set-host-ipv4-impl self params ipv4))
-        (when-let [ipv6 (:ipv6 batch-data)]
-          (set-host-ipv6-impl self params ipv6))
-        (when-let [sshfps (:sshfps batch-data)]
-          (set-host-sshpfs-impl self params sshfps))
-        batch-data)))
+    (let [params {:domain domain :host host}]
+      (when-let [ipv4 (:ipv4 batch-data)]
+        (set-host-ipv4-impl self params ipv4))
+      (when-let [ipv6 (:ipv6 batch-data)]
+        (set-host-ipv6-impl self params ipv6))
+      (when-let [sshfps (:sshfps batch-data)]
+        (set-host-sshfps-impl self params sshfps))
+      batch-data))
 
   (get-challenge-records [self domain]
     (when verbose

@@ -62,7 +62,6 @@ in {
             serviceConfig = {
               Type = "oneshot";
               DynamicUser = true;
-              StateDirectory = "nexus-client";
               RuntimeDirectory = "nexus-${type}-client";
               LoadCredential = [ "hmac.key:${cfg.hmac-key-file}" ]
                 ++ (mapAttrsToList (file: path: "${file}:${path}") sshKeyMap);
@@ -78,6 +77,7 @@ in {
                   ${optionalString cfg.ipv6 "--ipv6"} \
                   ${optionalString (type == "private") "--private"} \
                   ${optionalString (type == "tailscale") "--tailscale"} \
+                  --state-file=$RUNTIME_DIRECTORY/state.edn \
                   ${aliasFlags} \
                   ${sshfpFlags} \
                   ${optionalString cfg.verbose "--verbose"}

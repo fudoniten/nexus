@@ -20,12 +20,12 @@
        {:keys [host domain]} :path-params}]
     (try+
      (let [ip (ip/from-string payload)]
-       (when (not (ip/ipv4? ip))
+       (if (not (ip/ipv4? ip))
          {:status 400
-          :body (format "rejected: not a v4 IP: %s" payload)})
-       (store/set-host-ipv4 store domain host ip)
-       (metrics/inc-counter! metrics-registry :ipv4-updates)
-       {:status 200 :body (str ip)})
+          :body (format "rejected: not a v4 IP: %s" payload)}
+         (do (store/set-host-ipv4 store domain host ip)
+             (metrics/inc-counter! metrics-registry :ipv4-updates)
+             {:status 200 :body (str ip)})))
      (catch IllegalArgumentException _
        {:status 400
         :body (format "rejected: failed to parse IP: %s" payload)})
@@ -44,12 +44,12 @@
        {:keys [host domain]} :path-params}]
     (try+
      (let [ip (ip/from-string payload)]
-       (when (not (ip/ipv6? ip))
+       (if (not (ip/ipv6? ip))
          {:status 400
-          :body (format "rejected: not a v6 IP: %s" payload)})
-       (store/set-host-ipv6 store domain host ip)
-       (metrics/inc-counter! metrics-registry :ipv6-updates)
-       {:status 200 :body (str ip)})
+          :body (format "rejected: not a v6 IP: %s" payload)}
+         (do (store/set-host-ipv6 store domain host ip)
+             (metrics/inc-counter! metrics-registry :ipv6-updates)
+             {:status 200 :body (str ip)})))
      (catch IllegalArgumentException _
        {:status 400
         :body (format "rejected: failed to parse IP: %s" payload)})
@@ -267,7 +267,7 @@
            {:status 200 :body (str challenge-id)})
        (catch Exception e
          {:status 500
-          :body {:error (format "an unknown error has occured: %s"
+          :body {:error (format "an unknown error has occurred: %s"
                                 (.toString e))}})))))
 
 (defn- delete-challenge-record
@@ -282,7 +282,7 @@
        (when (:verbose store)
          (println (format "an unknown error has occurred: %s" (.toString e))))
        {:status 500
-        :body {:error (format "an unknown error has occured: %s"
+        :body {:error (format "an unknown error has occurred: %s"
                               (.toString e))}}))))
 
 (defn- list-records
@@ -419,8 +419,6 @@
            (println "matching key not found, rejecting request")
            (metrics/inc-counter! metrics-registry :auth-failures)
            { :status 404 :body (str "rejected: missing key for host") }))))))
-
-(defn pthru [msg o] (println (format "%s: %s" msg o)) o)
 
 (defn- make-timing-validator
   "Create middleware to validate request timestamps are within a max difference"
