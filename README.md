@@ -78,7 +78,7 @@ Add to your flake inputs:
             enable = true;
             servers = [ "ddns.example.com" ];
             domains = [ "example.com" ];
-            hostname = config.instance.hostname;
+            hostname = config.networking.hostName;
             hmac-key-file = "/path/to/hmac.key";
           };
         }

@@ -4,7 +4,7 @@ packages:
 
 with lib;
 let
-  hostname = config.instance.hostname;
+  hostname = config.networking.hostName;
   # Use Babashka script instead of JVM client
   nexus-client-script = pkgs.writeShellScriptBin "nexus-client" ''
     exec ${pkgs.babashka}/bin/bb ${../bb/nexus-client.clj} "$@"
@@ -46,8 +46,16 @@ in {
               concatStringsSep "," (map ({ domain, ... }: domain) domains);
             serverFlags =
               concatStringsSep " " (map (s: "--servers=${s}") cfg.servers);
+            globalDomainAliases = domain:
+              config.nexus.domains.${domain}.aliases or {};
             aliasList = concatMap ({ domain, aliases, ... }:
-              map (alias: "${alias}:${domain}") aliases) domains;
+              let
+                domainAliasMap = globalDomainAliases domain;
+                myAliases = filter (alias:
+                  let mappedHost = domainAliasMap.${alias} or null;
+                  in mappedHost == null || mappedHost == hostname
+                ) aliases;
+              in map (alias: "${alias}:${domain}") myAliases) domains;
             aliasFlags =
               concatStringsSep " " (map (a: "--aliases=${a}") aliasList);
             sshfpFlags = if hasSshfps then
