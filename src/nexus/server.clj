@@ -230,7 +230,7 @@
              :body (cond-> {}
                      (:ipv4 data)   (assoc :ipv4 (str (:ipv4 data)))
                      (:ipv6 data)   (assoc :ipv6 (str (:ipv6 data)))
-                     (:sshfps data) (assoc :sshfps (:sshfps data)))}))))
+                     (:sshfps data) (assoc :sshfps (:sshfps data)))})))
      (catch Exception e
        (log/log-error "set-host-batch-failed" e
                      {:domain domain
