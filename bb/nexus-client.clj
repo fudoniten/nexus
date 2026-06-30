@@ -50,29 +50,88 @@
   [ip-str]
   (str/includes? ip-str ":"))
 
-(defn private?
-  "Check if IP is private/local (RFC1918 + loopback for v4, ULA/link-local/loopback for v6)"
+;; IP classification.
+;;
+;; We let java.net.InetAddress do the bit-level math behind the well-known
+;; reserved ranges (loopback, link-local, RFC1918, multicast, ...) rather
+;; than matching address strings by hand -- string matching misses
+;; equivalent spellings like the fully-expanded ::1 (0:0:0:0:0:0:0:1) and
+;; is easy to get subtly wrong at range boundaries. The two ranges
+;; InetAddress does not recognize -- IPv6 ULA (fc00::/7) and Tailscale's
+;; CGNAT block (100.64.0.0/10, RFC 6598) -- are handled with an explicit
+;; CIDR check.
+;;
+;; NOTE: the isXxxAddress/getAddress methods are called on values
+;; type-hinted as ^InetAddress on purpose. Babashka's native image does not
+;; register reflection metadata for the Inet4Address/Inet6Address
+;; subclasses, so an un-hinted (reflective) call throws
+;; MissingReflectionRegistrationError at runtime.
+
+(defn ^InetAddress parse-ip
+  "Parse a literal IP string into an InetAddress, or nil if it is not a valid
+   numeric address. Any zone id (e.g. fe80::1%eth0) is stripped. getByName on
+   a numeric literal does not trigger a DNS lookup."
   [ip-str]
-  (or (re-matches #"^10\..+" ip-str)
-      (re-matches #"^172\.(1[6-9]|2[0-9]|3[01])\..+" ip-str)
-      (re-matches #"^192\.168\..+" ip-str)
-      (re-matches #"^127\..+" ip-str)
-      (re-matches #"^fe80:.+" ip-str)
-      (re-matches #"^fd[0-9a-f]{2}:.+" ip-str)
-      ;; IPv6 loopback (::1) and unspecified (::) addresses. The lo
-      ;; interface reports `inet6 ::1`, which must not be treated as public.
-      (re-matches #"^::1$" ip-str)
-      (re-matches #"^::$" ip-str)))
+  (try
+    (InetAddress/getByName (first (str/split ip-str #"%")))
+    (catch Exception _ nil)))
+
+(defn in-cidr?
+  "True if ip-str falls inside the CIDR block network-str/prefix-len, compared
+   byte-by-byte under the prefix mask. Works for both IPv4 and IPv6; a
+   mismatched address family is never a match."
+  [ip-str network-str prefix-len]
+  (let [a (parse-ip ip-str)
+        n (parse-ip network-str)]
+    (boolean
+     (when (and a n)
+       (let [ab (.getAddress ^InetAddress a)
+             nb (.getAddress ^InetAddress n)]
+         (and (= (alength ab) (alength nb))
+              (loop [bits prefix-len i 0]
+                (cond
+                  (<= bits 0) true
+                  (>= bits 8) (if (= (aget ab i) (aget nb i))
+                                (recur (- bits 8) (inc i))
+                                false)
+                  :else (let [mask (bit-and 0xff (bit-shift-left 0xff (- 8 bits)))]
+                          (= (bit-and (aget ab i) mask)
+                             (bit-and (aget nb i) mask)))))))))))
+
+(defn reserved?
+  "True for addresses that must never be reported in any mode: loopback
+   (127.0.0.0/8, ::1), link-local (169.254.0.0/16, fe80::/10), unspecified
+   (0.0.0.0, ::), and multicast (224.0.0.0/4, ff00::/8). Unparseable input is
+   treated as reserved so malformed addresses are never reported."
+  [ip-str]
+  (if-let [^InetAddress addr (parse-ip ip-str)]
+    (or (.isLoopbackAddress addr)
+        (.isLinkLocalAddress addr)
+        (.isAnyLocalAddress addr)
+        (.isMulticastAddress addr))
+    true))
+
+(defn private?
+  "True for private-network addresses suitable for a private domain: RFC1918
+   (10/8, 172.16/12, 192.168/16) and IPv6 ULA (fc00::/7). InetAddress covers
+   RFC1918 via isSiteLocalAddress but not ULA, so ULA is matched explicitly."
+  [ip-str]
+  (if-let [^InetAddress addr (parse-ip ip-str)]
+    (or (.isSiteLocalAddress addr)
+        (in-cidr? ip-str "fc00::" 7))
+    false))
 
 (defn tailscale?
-  "Check if IP is Tailscale (100.64.0.0/10 range)"
+  "True for Tailscale's CGNAT range, 100.64.0.0/10 (RFC 6598)."
   [ip-str]
-  (re-matches #"^100\.(6[4-9]|[7-9]\d|1[01]\d|12[0-7])\..+" ip-str))
+  (in-cidr? ip-str "100.64.0.0" 10))
 
 (defn public?
-  "Check if IP is public (not private, not loopback, not tailscale)"
+  "True only for globally routable addresses: not reserved, not a
+   private-network address, and not Tailscale."
   [ip-str]
-  (and (not (private? ip-str))
+  (and (not (reserved? ip-str))
+       (not (private? ip-str))
        (not (tailscale? ip-str))))
 
 (defn get-public-ipv4 []
