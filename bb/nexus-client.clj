@@ -51,14 +51,18 @@
   (str/includes? ip-str ":"))
 
 (defn private?
-  "Check if IP is private (RFC1918 for v4, ULA/link-local for v6)"
+  "Check if IP is private/local (RFC1918 + loopback for v4, ULA/link-local/loopback for v6)"
   [ip-str]
   (or (re-matches #"^10\..+" ip-str)
       (re-matches #"^172\.(1[6-9]|2[0-9]|3[01])\..+" ip-str)
       (re-matches #"^192\.168\..+" ip-str)
       (re-matches #"^127\..+" ip-str)
       (re-matches #"^fe80:.+" ip-str)
-      (re-matches #"^fd[0-9a-f]{2}:.+" ip-str)))
+      (re-matches #"^fd[0-9a-f]{2}:.+" ip-str)
+      ;; IPv6 loopback (::1) and unspecified (::) addresses. The lo
+      ;; interface reports `inet6 ::1`, which must not be treated as public.
+      (re-matches #"^::1$" ip-str)
+      (re-matches #"^::$" ip-str)))
 
 (defn tailscale?
   "Check if IP is Tailscale (100.64.0.0/10 range)"
