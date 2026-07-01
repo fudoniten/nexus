@@ -53,6 +53,13 @@ let
         local-port=${toString port}
         primary=yes
         launch=
+        # Produce date-based (YYYYMMDDSS) SOA serials. Without a SOA-EDIT policy
+        # `pdnsutil zone increase-serial` only bumps the serial by 1, so it never
+        # advances the date component. A serial stuck in the past looks stale to
+        # secondaries (e.g. Knot), which then refuse to transfer the zone.
+        # INCEPTION-INCREMENT rolls the date forward on each increment.
+        default-soa-edit=INCEPTION-INCREMENT
+        default-soa-edit-signed=INCEPTION-INCREMENT
       '' + secondary-clause);
       moduleDirectory = "${target-dir}/modules";
       genGpgsqlConfScript =
@@ -441,14 +448,14 @@ in {
               if [[ ! -f "$STATE_FILE" ]]; then
                 echo "First run for ${zone}: notified_serial=$NOTIFIED, incrementing serial as baseline"
                 echo "$NOTIFIED" > "$STATE_FILE"
-                pdnsutil --config-dir=$RUNTIME_DIRECTORY increase-serial ${zone}
+                pdnsutil --config-dir=$RUNTIME_DIRECTORY zone increase-serial ${zone}
                 NEEDS_NOTIFY=1
               else
                 STORED=$(cat "$STATE_FILE")
                 if [[ "$STORED" != "$NOTIFIED" ]]; then
                   echo "Zone ${zone}: changes detected (notified_serial $STORED -> $NOTIFIED)"
                   echo "$NOTIFIED" > "$STATE_FILE"
-                  pdnsutil --config-dir=$RUNTIME_DIRECTORY increase-serial ${zone}
+                  pdnsutil --config-dir=$RUNTIME_DIRECTORY zone increase-serial ${zone}
                   NEEDS_NOTIFY=1
                 else
                   echo "Zone ${zone}: no changes detected"
