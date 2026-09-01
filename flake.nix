@@ -68,7 +68,10 @@
         };
 
         devShells = rec {
-          default = updateDeps;
+          # General development shell: clojure CLI for running tests
+          # (clojure -M:test) and lint (clojure -M:lint, which bootstraps
+          # clj-kondo itself via deps.edn's :lint alias).
+          default = pkgs.mkShell { buildInputs = with pkgs; [ clojure ]; };
 
           # Update deps-lock.json (without test dependencies)
           updateDeps = pkgs.mkShell {
