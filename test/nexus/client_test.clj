@@ -1,6 +1,7 @@
 (ns nexus.client-test
   (:require [clojure.test :refer :all]
             [fudo-clojure.http.request :as req]
+            [fudo-clojure.common :refer [instant-to-epoch-timestamp]]
             [nexus.client :refer :all :as client]
             [nexus.crypto :refer [generate-key encode-key generate-keypair
                                   encode-private-key verify-with-public-key]]))
@@ -103,6 +104,9 @@
       (testing "the request signature verifies against the public key"
         (let [headers   (::req/headers authenticated-req)
               sig       (:access-signature headers)
-              timestamp (str (:access-timestamp headers))
+              ;; access-timestamp holds the raw java.time.Instant (see
+              ;; make-signing-authenticator); the signed string uses its
+              ;; epoch-seconds form, not (str instant)'s ISO-8601 form.
+              timestamp (-> (:access-timestamp headers) (instant-to-epoch-timestamp) (str))
               req-str   (str "GET" "/test" timestamp "")]
           (is (verify-with-public-key public-key req-str sig)))))))

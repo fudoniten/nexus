@@ -21,6 +21,24 @@
     (get-host-ipv6   [_ domain host] (-> data (get domain) (get host) (get :ipv6)))
     (get-host-sshfps [_ domain host] (-> data (get domain) (get host) (get :sshfps)))))
 
+(defn- make-mutable-datastore
+  "Like make-datastore, but actually persists writes (in an atom), so a
+  test can PUT and then GET the same host/domain in the same datastore and
+  see its own write. make-datastore's set-* just echoes back what it was
+  given -- it never touches its (closed-over, immutable) data -- which is
+  fine for the existing tests (each only ever exercises one direction),
+  but wrong for a test that checks read-your-writes."
+  []
+  (let [data (atom {})]
+    (reify ds/IDataStore
+      (set-host-ipv4   [_ domain host ip]     (swap! data assoc-in [domain host :ipv4] ip) ip)
+      (set-host-ipv6   [_ domain host ip]     (swap! data assoc-in [domain host :ipv6] ip) ip)
+      (set-host-sshfps [_ domain host sshfps] (swap! data assoc-in [domain host :sshfps] sshfps) sshfps)
+
+      (get-host-ipv4   [_ domain host] (get-in @data [domain host :ipv4]))
+      (get-host-ipv6   [_ domain host] (get-in @data [domain host :ipv6]))
+      (get-host-sshfps [_ domain host] (get-in @data [domain host :sshfps])))))
+
 (defn- make-datastore-throwing [err]
   (reify ds/IDataStore
     (set-host-ipv4   [_ _ _ _] (throw err))
@@ -333,7 +351,10 @@
 (deftest v3-get-and-set-successes
   (let [[pub0 priv0] (gen-keypair-pair)
         [pub1 priv1] (gen-keypair-pair)
-        datastore (make-datastore {})
+        ;; A GET immediately follows a PUT in this test, so it needs a
+        ;; datastore that actually persists writes -- make-datastore
+        ;; doesn't (see make-mutable-datastore's docstring).
+        datastore (make-mutable-datastore)
         mapper (reify mapper/IHostAliasMap
                  (get-host [_ host _] (keyword host)))
         auther    (auth/make-authenticator {:host0 (gen-key)} false)
