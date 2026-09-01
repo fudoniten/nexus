@@ -371,7 +371,10 @@
                      :status))))
 
     (testing "get-ipv4 via v3 returns the value set via v3"
-      (is (= (json/write-str "1.1.1.1")
+      ;; encode-body leaves an already-string body alone (see its
+      ;; docstring) -- get-host-ipv4 returns (str ip), so the body here is
+      ;; the bare string, not a JSON-quoted one.
+      (is (= "1.1.1.1"
              (-> (app (-> (ring/request :get "/api/v3/domain/test.com/host/host0/ipv4")
                          (sign-request-v3 priv0)))
                  :body))))
