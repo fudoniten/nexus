@@ -66,10 +66,17 @@ jobs:
       - name: Run clj-kondo
         # clj-kondo exits 0 clean, 2 warnings-only, 3 errors found -- a bare
         # non-zero exit would fail the step on warnings alone. Only treat
-        # exit 3 (actual errors) as a failure.
+        # exit 3 (actual errors) as a failure. The command is the condition
+        # of an `if` on purpose: GitHub Actions runs steps under `bash -e`,
+        # and a command tested directly in an `if` is exempt from errexit,
+        # so this actually reaches the exit-code check instead of aborting
+        # the step at the first non-zero exit.
         run: |
-          nix develop --command clojure -M:lint
-          code=$?
+          if nix develop --command clojure -M:lint; then
+            code=0
+          else
+            code=$?
+          fi
           if [ "$code" -eq 2 ]; then
             echo "clj-kondo reported warnings only (exit 2); not failing the build."
             exit 0
