@@ -1,0 +1,2 @@
+{:lint-as {slingshot.slingshot/try+ clojure.core/try
+           slingshot.slingshot/throw+ clojure.core/throw}}

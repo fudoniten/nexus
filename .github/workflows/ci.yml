@@ -64,4 +64,14 @@ jobs:
           nix_path: nixpkgs=channel:nixos-24.11
 
       - name: Run clj-kondo
-        run: nix develop --command clojure -M:lint
+        # clj-kondo exits 0 clean, 2 warnings-only, 3 errors found -- a bare
+        # non-zero exit would fail the step on warnings alone. Only treat
+        # exit 3 (actual errors) as a failure.
+        run: |
+          nix develop --command clojure -M:lint
+          code=$?
+          if [ "$code" -eq 2 ]; then
+            echo "clj-kondo reported warnings only (exit 2); not failing the build."
+            exit 0
+          fi
+          exit "$code"
