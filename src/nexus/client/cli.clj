@@ -29,7 +29,8 @@
    ["-s" "--server SERVER" "Hostname(s) of the Nexus DDNS server."
     :multi     true
     :update-fn conj]
-   ["-k" "--key-file FILE" "Location of host HMAC key file."]
+   ["-k" "--key-file FILE" "Location of host HMAC key file (legacy /api/v2). Exactly one of --key-file or --private-key-file is required."]
+   ["-K" "--private-key-file FILE" "Location of host Ed25519 private key file, as written by nexus-generate-key --keypair (/api/v3). Exactly one of --key-file or --private-key-file is required."]
    ["-p" "--port PORT" "Port on which the Nexus DDNS server is listening."
     :default 80
     :parse-fn #(Integer/parseInt %)
@@ -215,11 +216,15 @@
   "Main entry point for the Nexus client CLI."
   [& args]
   (log/info! (log/print-logger) (format "Starting Nexus client with arguments: %s" args))
-  (let [{:keys [options _ errors summary]} (parse-opts args #{:server :key-file} cli-opts)]
+  (let [{:keys [options _ errors summary]} (parse-opts args #{:server} cli-opts)]
     (when (seq errors)    (msg-quit 1 (usage summary errors)))
     (when (:help options) (msg-quit 0 (usage summary)))
     (when (empty? (:server options))
       (msg-quit 1 (usage summary ["At least one server must be specified."])))
+    (when (and (:key-file options) (:private-key-file options))
+      (msg-quit 1 (usage summary ["specify only one of --key-file or --private-key-file, not both"])))
+    (when (not (or (:key-file options) (:private-key-file options)))
+      (msg-quit 1 (usage summary ["a key file must be specified: --key-file (legacy HMAC, /api/v2) or --private-key-file (Ed25519, /api/v3)"])))
     (let [hostname       (or (:hostname options)
                              (-> (InetAddress/getLocalHost) (.getHostName)))
           domain-aliases (into {}
@@ -237,7 +242,8 @@
                                                  :aliases  (get domain-aliases domain [])
                                                  :servers  (:server options)
                                                  :port     (:port options)
-                                                 :hmac-key (-> options :key-file slurp)
+                                                 :hmac-key    (some-> options :key-file slurp)
+                                                 :private-key (some-> options :private-key-file slurp)
                                                  :logger   (log/print-logger)
                                                  :ca-map   (into {}
                                                                  (map-indexed

@@ -28,3 +28,38 @@
       (is (.exists (io/file "test-main-key.txt")))
       (finally
         (io/delete-file "test-main-key.txt" true)))))
+
+(deftest test-write-keypair
+  (let [keypair (crypto/generate-keypair)
+        filename "test-write-keypair.key"
+        pub-filename "test-write-keypair.key.pub"]
+    (testing "Writing a keypair to file writes both private and public files"
+      (try
+        (keygen/write-keypair {:keypair keypair :filename filename})
+        (is (.exists (io/file filename)))
+        (is (.exists (io/file pub-filename)))
+        (testing "the files roundtrip through decode"
+          (let [decoded-priv (crypto/decode-private-key (slurp filename))
+                decoded-pub  (crypto/decode-public-key (slurp pub-filename))]
+            (is (= (seq (.getEncoded (:private-key keypair))) (seq (.getEncoded decoded-priv))))
+            (is (= (seq (.getEncoded (:public-key keypair))) (seq (.getEncoded decoded-pub))))))
+        (testing "the private key file is restricted to owner-only permissions"
+          (let [perms (java.nio.file.Files/getPosixFilePermissions (.toPath (io/file filename))
+                                                                     (into-array java.nio.file.LinkOption []))]
+            (is (= #{java.nio.file.attribute.PosixFilePermission/OWNER_READ
+                     java.nio.file.attribute.PosixFilePermission/OWNER_WRITE}
+                   (set perms)))))
+        (finally
+          (io/delete-file filename true)
+          (io/delete-file pub-filename true))))))
+
+(deftest test-main-keypair
+  (testing "Main function with --keypair flag writes both key files"
+    (try
+      (with-out-str
+        (keygen/-main "-K" "test-main-keypair.key"))
+      (is (.exists (io/file "test-main-keypair.key")))
+      (is (.exists (io/file "test-main-keypair.key.pub")))
+      (finally
+        (io/delete-file "test-main-keypair.key" true)
+        (io/delete-file "test-main-keypair.key.pub" true)))))

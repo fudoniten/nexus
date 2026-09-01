@@ -2,7 +2,8 @@
   (:require [clojure.test :refer :all]
             [fudo-clojure.http.request :as req]
             [nexus.client :refer :all :as client]
-            [nexus.crypto :refer [generate-key encode-key]]))
+            [nexus.crypto :refer [generate-key encode-key generate-keypair
+                                  encode-private-key verify-with-public-key]]))
 
 (deftest test-to-path-elem
   (testing "to-path-elem function"
@@ -59,3 +60,49 @@
       ;; Just verify the authenticator returns a request
       (is (some? authenticated-req))
       (is (= "GET" (req/method authenticated-req))))))
+
+;; --- v3 (Ed25519) request builders and authenticator ---
+
+(deftest test-build-path-v3
+  (testing "build-path with :v3"
+    (is (= "/api/v3/domain/example.com/host/test/ipv4"
+           (build-path :api :v3 :domain "example.com" :host "test" :ipv4)))))
+
+(deftest test-send-ipv4-request-v3
+  (testing "send-ipv4-request defaults to v2, but takes :v3"
+    (is (= "/api/v2/domain/example.com/host/test/ipv4?"
+           (req/request-path (send-ipv4-request :hostname "test" :domain "example.com"
+                                                 :server "localhost" :port 8080 :ip "127.0.0.1"))))
+    (is (= "/api/v3/domain/example.com/host/test/ipv4?"
+           (req/request-path (send-ipv4-request :hostname "test" :domain "example.com"
+                                                 :server "localhost" :port 8080 :ip "127.0.0.1"
+                                                 :version :v3))))))
+
+(deftest test-make-signature-generator-v3
+  (testing "make-signature-generator-v3 signs with the private key, verifiable with the public key"
+    (let [{:keys [public-key private-key]} (generate-keypair)
+          private-key-str (encode-private-key private-key)
+          sign (make-signature-generator-v3 private-key-str)
+          sig  (sign "message")]
+      (is (string? sig))
+      (is (verify-with-public-key public-key "message" sig))
+      (is (not (verify-with-public-key public-key "different message" sig))))))
+
+(deftest test-make-request-authenticator-v3
+  (testing "make-request-authenticator-v3 function"
+    (let [{:keys [public-key private-key]} (generate-keypair)
+          private-key-str (encode-private-key private-key)
+          authenticator (make-request-authenticator-v3 {::client/private-key private-key-str
+                                                         ::client/hostname   "test-host"})
+          req (-> (base-request "localhost" 8080)
+                  (req/as-get)
+                  (req/with-path "/test"))
+          authenticated-req (authenticator req)]
+      (is (some? authenticated-req))
+      (is (= "GET" (req/method authenticated-req)))
+      (testing "the request signature verifies against the public key"
+        (let [headers   (::req/headers authenticated-req)
+              sig       (:access-signature headers)
+              timestamp (str (:access-timestamp headers))
+              req-str   (str "GET" "/test" timestamp "")]
+          (is (verify-with-public-key public-key req-str sig)))))))

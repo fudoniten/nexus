@@ -7,7 +7,7 @@ This project is a part of the Nexus dynamic DNS system. The Nexus client is resp
 - Send and receive requests to update or retrieve IP addresses and SSHFP records.
 - Supports both IPv4 and IPv6.
 - Provides a CLI for easy interaction.
-- Uses HMAC for request authentication.
+- Authenticates requests with either a shared HMAC key (`--key-file`, legacy `/api/v2`) or a per-host Ed25519 private key (`--private-key-file`, `/api/v3`, generated with `nexus-generate-key --keypair`). Exactly one of the two must be given.
 
 ## Usage
 

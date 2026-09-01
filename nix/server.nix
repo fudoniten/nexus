@@ -11,6 +11,17 @@ let
   host-alias-map = pkgs.writeText "nexus-host-alias-map.json"
     (builtins.toJSON cfg.client-alias-map);
 
+  # Unlike host-keys/challenge-keys above, these are Ed25519 public keys --
+  # not secret, so they need no LoadCredential/secret-file handling, just a
+  # plain Nix store path built directly from the (committable-in-plaintext)
+  # config value, the same way host-alias-map is.
+  host-public-keys-json = pkgs.writeText "nexus-host-public-keys.json"
+    (builtins.toJSON cfg.host-public-keys);
+
+  challenge-public-keys-json =
+    pkgs.writeText "nexus-challenge-public-keys.json"
+    (builtins.toJSON cfg.challenge-public-keys);
+
 in {
   imports = [ ./options.nix ];
 
@@ -43,7 +54,11 @@ in {
             "--database-port=${toString db-cfg.port}"
             "--listen-host=127.0.0.1"
             "--listen-port=${toString cfg.internal-port}"
-          ] ++ (optional cfg.verbose "--verbose")));
+          ] ++ (optional (cfg.host-public-keys != { })
+            "--host-public-keys=${host-public-keys-json}")
+          ++ (optional (cfg.challenge-public-keys != { })
+            "--challenge-public-keys=${challenge-public-keys-json}")
+          ++ (optional cfg.verbose "--verbose")));
 
         ExecStartPre = [
           ("+${pkgs.writeShellScript "nexus-wait-for-secrets.sh" ''
