@@ -220,6 +220,32 @@ in {
           "Path (on the local host) to JSON file containing a client to HMAC key for challenge requests.";
       };
 
+      host-public-keys = mkOption {
+        type = attrsOf str;
+        description = ''
+          Map of hostname to host Ed25519 public key, as written to
+          <name>.pub by nexus-generate-key --keypair. When non-empty, this
+          enables the public-key authenticated /api/v3 API alongside the
+          legacy HMAC-authenticated /api/v2, so already-migrated and
+          not-yet-migrated hosts can be served side by side.
+
+          Unlike host-keys/client-keys-file, these are public keys: they
+          are not secret and can be committed in plaintext (e.g. to version
+          control), unlike the shared HMAC keys they replace.
+        '';
+        default = { };
+      };
+
+      challenge-public-keys = mkOption {
+        type = attrsOf str;
+        description = ''
+          Map of challenge-client name to Ed25519 public key, enabling
+          public-key authenticated challenge requests on /api/v3. Not
+          secret; see host-public-keys.
+        '';
+        default = { };
+      };
+
       client-alias-map = let
         domainAliases = submodule ({ name, ... }: {
           options = {
@@ -325,8 +351,24 @@ in {
       };
 
       hmac-key-file = mkOption {
-        type = str;
-        description = "Path (on local host) of file containing HMAC key.";
+        type = nullOr str;
+        description = ''
+          Path (on local host) of file containing this host's HMAC key.
+          Authenticates against the legacy /api/v2 API. Exactly one of
+          hmac-key-file or private-key-file must be set.
+        '';
+        default = null;
+      };
+
+      private-key-file = mkOption {
+        type = nullOr str;
+        description = ''
+          Path (on local host) of file containing this host's Ed25519
+          private key, as written by nexus-generate-key --keypair.
+          Authenticates against the /api/v3 API. Exactly one of
+          hmac-key-file or private-key-file must be set.
+        '';
+        default = null;
       };
     };
   };

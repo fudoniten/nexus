@@ -458,47 +458,83 @@
                         :method (-> req :request-method name)})
          (throw e))))))
 
+(defn- api-domain-routes
+  "Build the /domain/:domain route subtree (challenges, challenge, host) for
+  one API version, given that version's authenticators."
+  [{:keys [host-authenticator challenge-authenticator data-store host-mapper
+           metrics-registry max-delay verbose]}]
+  ["/domain/:domain"
+   ["/challenges" {:middleware [(make-challenge-signature-authenticator verbose challenge-authenticator metrics-registry)
+                                (make-timing-validator max-delay)]}
+    ["/list" {:get {:handler (get-challenge-records data-store)}}]]
+   ["/challenge" {:middleware [(make-challenge-signature-authenticator verbose challenge-authenticator metrics-registry)
+                               (make-timing-validator max-delay)]}
+    ["/:challenge-id" {:put    {:handler (create-challenge-record data-store metrics-registry verbose)}
+                       :delete {:handler (delete-challenge-record data-store metrics-registry)}}]]
+   ["/host" {:middleware [(make-host-signature-authenticator verbose host-authenticator host-mapper metrics-registry)
+                          (make-timing-validator max-delay)]}
+    ["/:host"
+     ["/ipv4"   {:put {:handler (set-host-ipv4 data-store metrics-registry)}
+                 :get {:handler (get-host-ipv4 data-store)}}]
+     ["/ipv6"   {:put {:handler (set-host-ipv6 data-store metrics-registry)}
+                 :get {:handler (get-host-ipv6 data-store)}}]
+     ["/sshfps" {:put {:handler (set-host-sshfps data-store metrics-registry host-mapper)}
+                 :get {:handler (get-host-sshfps data-store)}}]
+     ["/batch"  {:put {:handler (set-host-batch data-store metrics-registry host-mapper)}
+                :get {:handler (get-host-batch data-store)}}]]]])
+
+(defn- api-version-routes
+  "Build the full /<version> route subtree (health, records, domain) for one
+  API version, given that version's authenticators. Different API versions
+  differ only in which authenticator validates the request signature -- the
+  handlers and record shapes are identical."
+  [version {:keys [metrics-registry verbose data-store] :as opts}]
+  [(str "/" version) {:middleware [keywordize-headers
+                                   decode-body
+                                   encode-body
+                                   (log-requests verbose)
+                                   (metrics/time-request metrics-registry)]}
+   ["/health"  {:get {:handler (fn [_] {:status 200 :body "OK"})}}]
+   ["/records" {:get {:handler (list-records data-store)}}]
+   (api-domain-routes opts)])
+
 (defn create-app
-  "Create the Nexus server app with the given configuration"
+  "Create the Nexus server app with the given configuration.
+
+  host-authenticator/challenge-authenticator authenticate requests to the
+  legacy HMAC-signed /api/v2 API, always mounted.
+
+  host-authenticator-v3/challenge-authenticator-v3 authenticate requests to
+  the Ed25519-signed /api/v3 API. When host-authenticator-v3 is provided,
+  /api/v3 is mounted alongside /api/v2, so already-migrated and
+  not-yet-migrated hosts can both be served during the migration window."
   [& {:keys [host-authenticator
              challenge-authenticator
+             host-authenticator-v3
+             challenge-authenticator-v3
              data-store
              max-delay
              verbose
              host-mapper]
       :or   {max-delay 60
              verbose   false}}]
-  (let [metrics-registry (metrics/initialize-metrics)]
+  (let [metrics-registry (metrics/initialize-metrics)
+        base-opts {:data-store       data-store
+                   :host-mapper      host-mapper
+                   :metrics-registry metrics-registry
+                   :max-delay        max-delay
+                   :verbose          verbose}
+        v2-routes (api-version-routes "v2" (assoc base-opts
+                                                   :host-authenticator      host-authenticator
+                                                   :challenge-authenticator challenge-authenticator))
+        v3-routes (when host-authenticator-v3
+                    (api-version-routes "v3" (assoc base-opts
+                                                     :host-authenticator      host-authenticator-v3
+                                                     :challenge-authenticator challenge-authenticator-v3)))]
     (log/setup-logging! {:verbose verbose})
     (log/info! {:event "server-starting"})
     (ring/ring-handler
      (ring/router [["/" {:get {:handler (serve-web-ui)}}]
                    ["/metrics" {:get {:handler (serve-metrics metrics-registry)}}]
-                   ["/api"
-                    ["/v2" {:middleware [keywordize-headers
-                                         decode-body 
-                                         encode-body
-                                         (log-requests verbose)
-                                         (metrics/time-request metrics-registry)]}
-                     ["/health"  {:get {:handler (fn [_] {:status 200 :body "OK"})}}]
-                     ["/records" {:get {:handler (list-records data-store)}}]
-                     ["/domain/:domain"
-                      ["/challenges" {:middleware [(make-challenge-signature-authenticator verbose challenge-authenticator metrics-registry)
-                                                   (make-timing-validator max-delay)]}
-                       ["/list" {:get {:handler (get-challenge-records data-store)}}]]
-                      ["/challenge" {:middleware [(make-challenge-signature-authenticator verbose challenge-authenticator metrics-registry)
-                                                  (make-timing-validator max-delay)]}
-                       ["/:challenge-id" {:put    {:handler (create-challenge-record data-store metrics-registry verbose)}
-                                          :delete {:handler (delete-challenge-record data-store metrics-registry)}}]]
-                       ["/host" {:middleware [(make-host-signature-authenticator verbose host-authenticator host-mapper metrics-registry)
-                                              (make-timing-validator max-delay)]}
-                        ["/:host"
-                         ["/ipv4"   {:put {:handler (set-host-ipv4 data-store metrics-registry)}
-                                     :get {:handler (get-host-ipv4 data-store)}}]
-                         ["/ipv6"   {:put {:handler (set-host-ipv6 data-store metrics-registry)}
-                                     :get {:handler (get-host-ipv6 data-store)}}]
-                         ["/sshfps" {:put {:handler (set-host-sshfps data-store metrics-registry host-mapper)}
-                                     :get {:handler (get-host-sshfps data-store)}}]
-                         ["/batch"  {:put {:handler (set-host-batch data-store metrics-registry host-mapper)}
-                                    :get {:handler (get-host-batch data-store)}}]]]]]]])
+                   (into ["/api"] (remove nil? [v2-routes v3-routes]))])
      (ring/create-default-handler))))

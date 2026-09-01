@@ -23,6 +23,12 @@
    ["-c" "--challenge-keys CHALLENGE_KEYS"
     "File containing challenge keys, in json format."]
 
+   [nil "--host-public-keys HOST_PUBLIC_KEYS"
+    "File containing host/Ed25519-public-key pairs, in json format. Not secret. When given, enables the /api/v3 API (public-key authenticated) alongside the legacy /api/v2 (HMAC authenticated) API."]
+
+   [nil "--challenge-public-keys CHALLENGE_PUBLIC_KEYS"
+    "File containing challenge Ed25519 public keys, in json format. Not secret. Enables public-key-authenticated challenge requests on /api/v3."]
+
    ["-M" "--host-alias-map HOST_ALIAS_MAP"
     "File containing host to domain/alias mapping, in json format."]
 
@@ -103,23 +109,38 @@
 
                  (and (:host-alias-map options)
                       (not (file-exists? (:host-alias-map options))))
-                 (conj "host-alias-map file does not exist"))]
+                 (conj "host-alias-map file does not exist")
+
+                 (and (:host-public-keys options)
+                      (not (file-exists? (:host-public-keys options))))
+                 (conj "host-public-keys file does not exist")
+
+                 (and (:challenge-public-keys options)
+                      (not (file-exists? (:challenge-public-keys options))))
+                 (conj "challenge-public-keys file does not exist"))]
     (if (seq errors)
       (assoc options :errors errors)
       options)))
 
 (defn initialize-app
   "Initialize the application components"
-  [{:keys [host-keys challenge-keys host-alias-map verbose] :as config}]
+  [{:keys [host-keys challenge-keys host-alias-map
+           host-public-keys challenge-public-keys verbose] :as config}]
   (let [host-authenticator      (auth/initialize-key-collection host-keys verbose)
         challenge-authenticator (auth/initialize-key-collection challenge-keys verbose)
+        host-authenticator-v3   (when host-public-keys
+                                  (auth/initialize-pubkey-collection host-public-keys verbose))
+        challenge-authenticator-v3 (when challenge-public-keys
+                                     (auth/initialize-pubkey-collection challenge-public-keys verbose))
         store                   (sql-store/connect config)
         host-mapper             (host-mapper/make-mapper host-alias-map)]
-    (server/create-app :host-authenticator      host-authenticator
-                       :challenge-authenticator challenge-authenticator
-                       :data-store              store
-                       :host-mapper             host-mapper
-                       :verbose                 verbose)))
+    (server/create-app :host-authenticator          host-authenticator
+                       :challenge-authenticator     challenge-authenticator
+                       :host-authenticator-v3       host-authenticator-v3
+                       :challenge-authenticator-v3  challenge-authenticator-v3
+                       :data-store                  store
+                       :host-mapper                 host-mapper
+                       :verbose                     verbose)))
 
 (defn start-server!
   "Start the server and wait for shutdown"

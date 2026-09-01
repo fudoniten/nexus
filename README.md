@@ -119,23 +119,34 @@ See component-specific documentation:
 
 ### How It Works
 
-1. **Key Generation**: Use `nexus-keygen` to generate shared HMAC keys
+1. **Key Generation**: Use `nexus-keygen` to generate a shared HMAC key (legacy) or, with `--keypair`, an Ed25519 keypair
 2. **Client**: Runs periodically (default: every 60 seconds) to:
    - Discover local IP addresses (public, private, or Tailscale)
    - Read SSH host key fingerprints
    - Send authenticated updates to configured servers
 3. **Server**: Receives authenticated requests and:
-   - Validates HMAC signatures and timestamps (60s window)
+   - Validates the request signature and timestamp (60s window)
    - Updates PowerDNS records in PostgreSQL
    - Increments SOA serial (via database trigger)
 4. **PowerDNS**: Serves updated DNS records to clients
 
 ### Security
 
-- **Mutual authentication**: Both client and server verify HMAC signatures
+- **Two authentication schemes, side by side**: the legacy `/api/v2` API authenticates requests with a symmetric HMAC key shared by client and server; the newer `/api/v3` API authenticates requests signed with a per-host Ed25519 private key, verified by the server against that host's public key. A server can run both at once, so hosts can migrate one at a time. See [Migrating to public-key authentication](#migrating-to-public-key-authentication) below.
+- **Public keys are not secret**: unlike an HMAC key, a host's Ed25519 public key needs no confidential handling on the server -- it can be committed in plaintext (e.g. to version control) via `nexus.server.host-public-keys`. Only the corresponding private key, held solely by that host, needs to be kept secret.
 - **Replay protection**: Timestamps must be within 60 seconds
-- **Per-host keys**: Each client has unique HMAC key
+- **Per-host keys**: Each client has its own key (HMAC or Ed25519)
 - **HTTPS**: All communication encrypted in transit
+
+### Migrating to public-key authentication
+
+Each host can move from its shared HMAC key to its own Ed25519 keypair independently, with `/api/v2` and `/api/v3` running side by side on the server throughout:
+
+1. Generate a keypair for the host: `nexus-keygen --keypair host.key` (writes `host.key`, the private key, and `host.key.pub`, the public key).
+2. Add the public key to the server's `nexus.server.host-public-keys.<hostname>` option (a plain, non-secret Nix value -- no secret-management step needed).
+3. Deliver `host.key` (the private key) to the host as a secret, and set `nexus.client.private-key-file` to its path, in place of `nexus.client.hmac-key-file`.
+4. Redeploy the host; it now signs its updates with the Ed25519 key against `/api/v3`.
+5. Once every host has migrated, `nexus.server.host-keys`/`client-keys-file` (the legacy HMAC key vault) can be retired.
 
 ## Development
 

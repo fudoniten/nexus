@@ -36,48 +36,48 @@
 
 (defn send-ipv4-request
   "Creates a PUT request to send an IPv4 address for a specific hostname and domain."
-  [& {:keys [hostname domain server port ip]}]
+  [& {:keys [hostname domain server port ip version] :or {version :v2}}]
   (-> (base-request server port)
       (req/as-put)
       (req/with-body (str ip))
-      (req/with-path (build-path :api :v2 :domain domain :host hostname :ipv4))))
+      (req/with-path (build-path :api version :domain domain :host hostname :ipv4))))
 
 (defn send-ipv6-request
   "Creates a PUT request to send an IPv6 address for a specific hostname and domain."
-  [& {:keys [hostname domain server port ip]}]
+  [& {:keys [hostname domain server port ip version] :or {version :v2}}]
   (-> (base-request server port)
       (req/as-put)
       (req/with-body (str ip))
-      (req/with-path (build-path :api :v2 :domain domain :host hostname :ipv6))))
+      (req/with-path (build-path :api version :domain domain :host hostname :ipv6))))
 
 (defn send-sshfps-request
   "Creates a PUT request to send SSHFP records for a specific hostname and domain."
-  [& {:keys [hostname domain server port sshfps]}]
+  [& {:keys [hostname domain server port sshfps version] :or {version :v2}}]
   (-> (base-request server port)
       (req/as-put)
       (req/with-body (str sshfps))
-      (req/with-path (build-path :api :v2 :domain domain :host hostname :sshfps))))
+      (req/with-path (build-path :api version :domain domain :host hostname :sshfps))))
 
 (defn get-ipv4-request
   "Creates a GET request to retrieve the IPv4 address for a specific hostname and domain."
-  [& {:keys [hostname domain server port]}]
+  [& {:keys [hostname domain server port version] :or {version :v2}}]
   (-> (base-request server port)
       (req/as-get)
-      (req/with-path (build-path :api :v2 :domain domain :host hostname :ipv4))))
+      (req/with-path (build-path :api version :domain domain :host hostname :ipv4))))
 
 (defn get-ipv6-request
   "Creates a GET request to retrieve the IPv6 address for a specific hostname and domain."
-  [& {:keys [hostname domain server port]}]
+  [& {:keys [hostname domain server port version] :or {version :v2}}]
   (-> (base-request server port)
       (req/as-get)
-      (req/with-path (build-path :api :v2 :domain domain :host hostname :ipv6))))
+      (req/with-path (build-path :api version :domain domain :host hostname :ipv6))))
 
 (defn get-sshfps-request
   "Creates a GET request to retrieve SSHFP records for a specific hostname and domain."
-  [& {:keys [hostname domain server port]}]
+  [& {:keys [hostname domain server port version] :or {version :v2}}]
   (-> (base-request server port)
       (req/as-get)
-      (req/with-path (build-path :api :v2 :domain domain :host hostname :sshfps))))
+      (req/with-path (build-path :api version :domain domain :host hostname :sshfps))))
 
 (defn make-signature-generator
   "Creates a function to generate HMAC signatures using the provided key."
@@ -89,24 +89,44 @@
         (-> (.doFinal hmac (.getBytes msg))
             (base64-encode-string))))))
 
-(defn make-request-authenticator
-  "Creates a request authenticator function using HMAC for signing requests."
-  [{hmac-key ::hmac-key hostname ::hostname}]
-  (let [sign (make-signature-generator hmac-key)]
-    (fn [req]
-      (let [timestamp    (-> req (req/timestamp))]
-        (when (nil? timestamp)
-          (throw (ex-info "Timestamp is nil" {:type ::nil-timestamp})))
-        (let [timestamp-str (-> timestamp (instant-to-epoch-timestamp) (str))
-              req-str (str (-> req (req/method)       (name))
-                           (-> req (req/request-path) (str/replace #"\?$" ""))
-                           timestamp-str
-                           (-> req (req/body)))
+(defn make-signature-generator-v3
+  "Creates a function to generate Ed25519 signatures using the provided
+  encoded private key."
+  [private-key-str]
+  (let [private-key (crypto/decode-private-key private-key-str)]
+    (fn [msg]
+      (crypto/sign-with-private-key private-key msg))))
+
+(defn- make-signing-authenticator
+  "Creates a request authenticator function that signs requests with the
+  given sign fn (a fn from message string to Base64 signature string)."
+  [sign hostname]
+  (fn [req]
+    (let [timestamp    (-> req (req/timestamp))]
+      (when (nil? timestamp)
+        (throw (ex-info "Timestamp is nil" {:type ::nil-timestamp})))
+      (let [timestamp-str (-> timestamp (instant-to-epoch-timestamp) (str))
+            req-str (str (-> req (req/method)       (name))
+                         (-> req (req/request-path) (str/replace #"\?$" ""))
+                         timestamp-str
+                         (-> req (req/body)))
             sig     (sign req-str)]
         (req/with-headers req
           {:access-signature sig
            :access-timestamp timestamp
-           :access-hostname  hostname}))))))
+           :access-hostname  hostname})))))
+
+(defn make-request-authenticator
+  "Creates a request authenticator function using HMAC for signing requests.
+  Used for the legacy /api/v2 API."
+  [{hmac-key ::hmac-key hostname ::hostname}]
+  (make-signing-authenticator (make-signature-generator hmac-key) hostname))
+
+(defn make-request-authenticator-v3
+  "Creates a request authenticator function using an Ed25519 private key for
+  signing requests. Used for the /api/v3 API."
+  [{private-key ::private-key hostname ::hostname}]
+  (make-signing-authenticator (make-signature-generator-v3 private-key) hostname))
 
 (defprotocol INexusClient
   "Protocol defining the operations for a Nexus client."
@@ -138,9 +158,11 @@
                          (when verbose (println e)))))
 
 (defn make-nexus-client
-  "Creates a Nexus client with the specified configuration."
-  [& { :keys [http-client servers port domain hostnames verbose]
-                              :or   {verbose false}}]
+  "Creates a Nexus client with the specified configuration. version selects
+  which API version's request paths to use (:v2, the default, or :v3)."
+  [& { :keys [http-client servers port domain hostnames version verbose]
+                              :or   {verbose false
+                                     version :v2}}]
   (let [server-rank    (atom servers)
         rotate-server! (fn [] (swap! server-rank rotate))
         get-server     (fn [] (first @server-rank))
@@ -148,7 +170,8 @@
                          {:server   (get-server)
                           :port     port
                           :domain   domain
-                          :hostname hostname})]
+                          :hostname hostname
+                          :version  version})]
     (reify
       INexusClient
       (send-ipv4! [_ ipv4]
@@ -176,15 +199,22 @@
           (println (str "Switched to server: " (get-server))))))))
 
 (defn connect
-  "Establishes a connection to the Nexus server with the given configuration."
-  [& {:keys [domain aliases hostname servers port hmac-key logger verbose]}]
-  (let [authenticator (make-request-authenticator {::hmac-key hmac-key ::hostname hostname})]
+  "Establishes a connection to the Nexus server with the given configuration.
+  Give exactly one of hmac-key (legacy, HMAC-signed /api/v2) or private-key
+  (Ed25519-signed /api/v3) -- whichever is given selects both the signing
+  scheme and the API version used."
+  [& {:keys [domain aliases hostname servers port hmac-key private-key logger verbose]}]
+  (let [version       (if private-key :v3 :v2)
+        authenticator (if private-key
+                        (make-request-authenticator-v3 {::private-key private-key ::hostname hostname})
+                        (make-request-authenticator {::hmac-key hmac-key ::hostname hostname}))]
     (make-nexus-client :http-client (http/json-client :authenticator   authenticator
                                                       :logger          logger)
                        :servers     servers
                        :port        port
                        :domain      domain
                        :hostnames   (concat [hostname] aliases)
+                       :version     version
                        :verbose     verbose)))
 
 (defn combine-nexus-clients

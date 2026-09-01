@@ -14,6 +14,18 @@ let
     (map (path: nameValuePair (baseNameOf path) path) cfg.ssh-key-files);
   hasSshfps = (lib.length cfg.ssh-key-files) > 0;
 
+  # A host authenticates with exactly one key: its legacy HMAC key against
+  # /api/v2, or its Ed25519 private key (once migrated) against /api/v3.
+  usingPrivateKey = cfg.private-key-file != null;
+  keyCredentialName = if usingPrivateKey then "private.key" else "hmac.key";
+  keyCredential = "${keyCredentialName}:${
+      if usingPrivateKey then cfg.private-key-file else cfg.hmac-key-file
+    }";
+  keyFlag = if usingPrivateKey then
+    "--private-key-file=$CREDENTIALS_DIRECTORY/${keyCredentialName}"
+  else
+    "--key-file=$CREDENTIALS_DIRECTORY/${keyCredentialName}";
+
   # Define domain filters at top level for reuse across services/paths/timers
   publicDomains =
     attrValues (filterAttrs (_: opts: opts.type == "public") cfg.domains);
@@ -26,6 +38,12 @@ in {
   imports = [ ./options.nix ];
 
   config = mkIf cfg.enable {
+    assertions = [{
+      assertion = (cfg.hmac-key-file != null) != (cfg.private-key-file != null);
+      message =
+        "nexus.client: exactly one of hmac-key-file (legacy /api/v2) or private-key-file (/api/v3) must be set";
+    }];
+
     systemd = {
       services = let
         nexusClientService = type: domains:
@@ -72,7 +90,7 @@ in {
               DynamicUser = true;
               RuntimeDirectory = "nexus-${type}-client";
               CacheDirectory = "nexus-${type}-client";
-              LoadCredential = [ "hmac.key:${cfg.hmac-key-file}" ]
+              LoadCredential = [ keyCredential ]
                 ++ (mapAttrsToList (file: path: "${file}:${path}") sshKeyMap);
               ExecStart = pkgs.writeShellScript "nexus-${type}-client.sh" ''
                 ${optionalString hasSshfps genSshfps}
@@ -81,7 +99,7 @@ in {
                   --domains=${domainList} \
                   ${serverFlags} \
                   --port=443 \
-                  --key-file=$CREDENTIALS_DIRECTORY/hmac.key \
+                  ${keyFlag} \
                   ${optionalString cfg.ipv4 "--ipv4"} \
                   ${optionalString cfg.ipv6 "--ipv6"} \
                   ${optionalString (type == "private") "--private"} \

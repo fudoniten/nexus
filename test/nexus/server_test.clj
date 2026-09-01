@@ -61,6 +61,22 @@
       body-str)
     ""))
 
+(defn- sign-request-v3
+  "Same as sign-request, but signs with an Ed25519 private key instead of
+  an HMAC key."
+  [req private-key]
+  (let [timestamp (-> req
+                      (get-in [:headers "access-timestamp"])
+                      (or (str (current-epoch-timestamp))))
+        req-str   (str (-> req :request-method (name) (str/upper-case))
+                       (-> req :uri)
+                       timestamp
+                       (-> req (read-body)))
+        sig       (crypto/sign-with-private-key private-key req-str)]
+    (-> req
+        (ring/header :access-timestamp timestamp)
+        (ring/header :access-signature sig))))
+
 (defn- sign-request [req key-str]
   (let [timestamp (-> req
                       (get-in [:headers "access-timestamp"])
@@ -292,3 +308,102 @@
         (is (str/includes? (:body resp) "warning") "Response should contain a warning")
         (is (str/includes? (:body resp) "CNAME") "Warning should mention CNAME incompatibility")
         (is (nil? @sshfps-stored) "SSHFPs should NOT be stored for alias")))))
+
+;; --- /api/v3: public-key (Ed25519) authenticated API ---
+
+(defn- gen-keypair-pair
+  "Returns [encoded-public-key private-key] for a fresh Ed25519 keypair."
+  []
+  (let [{:keys [public-key private-key]} (crypto/generate-keypair)]
+    [(crypto/encode-public-key public-key) private-key]))
+
+(deftest v3-not-mounted-without-authenticator
+  (testing "The v3 API 404s when no host-authenticator-v3 is configured"
+    (let [datastore (make-datastore {})
+          mapper (reify mapper/IHostAliasMap
+                   (get-host [_ host _] (keyword host)))
+          auther (auth/make-authenticator {:host0 (gen-key)} false)
+          app    (srv/create-app :host-authenticator auther
+                                 :data-store    datastore
+                                 :host-mapper   mapper
+                                 :max-delay     5)]
+      (is (= 404 (-> (app (ring/request :get "/api/v3/domain/test.com/host/host0/ipv4"))
+                     :status))))))
+
+(deftest v3-get-and-set-successes
+  (let [[pub0 priv0] (gen-keypair-pair)
+        [pub1 priv1] (gen-keypair-pair)
+        datastore (make-datastore {})
+        mapper (reify mapper/IHostAliasMap
+                 (get-host [_ host _] (keyword host)))
+        auther    (auth/make-authenticator {:host0 (gen-key)} false)
+        auther-v3 (auth/make-pubkey-authenticator {:host0 pub0 :host1 pub1} false)
+        app    (srv/create-app :host-authenticator    auther
+                               :host-authenticator-v3 auther-v3
+                               :data-store    datastore
+                               :host-mapper   mapper
+                               :max-delay     5)]
+    (testing "set-ipv4 via v3, signed with the Ed25519 private key, succeeds"
+      (is (= 200 (-> (app (-> (ring/request :put "/api/v3/domain/test.com/host/host0/ipv4")
+                             (ring/body (json/write-str "1.1.1.1"))
+                             (sign-request-v3 priv0)))
+                     :status))))
+
+    (testing "get-ipv4 via v3 returns the value set via v3"
+      (is (= (json/write-str "1.1.1.1")
+             (-> (app (-> (ring/request :get "/api/v3/domain/test.com/host/host0/ipv4")
+                         (sign-request-v3 priv0)))
+                 :body))))
+
+    (testing "a v3 request signed with another host's private key is rejected"
+      (is (= 401 (-> (app (-> (ring/request :get "/api/v3/domain/test.com/host/host0/ipv4")
+                             (sign-request-v3 priv1)))
+                     :status))))))
+
+(deftest v3-and-v2-coexist
+  (testing "v2 (HMAC) and v3 (Ed25519) both authenticate correctly against the same app"
+    (let [host-keys {:host0 (gen-key)}
+          [pub0 priv0] (gen-keypair-pair)
+          datastore (make-datastore {})
+          mapper (reify mapper/IHostAliasMap
+                   (get-host [_ host _] (keyword host)))
+          auther    (auth/make-authenticator host-keys false)
+          auther-v3 (auth/make-pubkey-authenticator {:host0 pub0} false)
+          app    (srv/create-app :host-authenticator    auther
+                                 :host-authenticator-v3 auther-v3
+                                 :data-store    datastore
+                                 :host-mapper   mapper
+                                 :max-delay     5)]
+      (is (= 200 (-> (app (-> (ring/request :put "/api/v2/domain/test.com/host/host0/ipv6")
+                             (ring/body (json/write-str "1::1"))
+                             (sign-request (:host0 host-keys))))
+                     :status))
+          "v2 still authenticates a legacy HMAC-signed request")
+      (is (= 200 (-> (app (-> (ring/request :put "/api/v3/domain/test.com/host/host0/ipv6")
+                             (ring/body (json/write-str "1::1"))
+                             (sign-request-v3 priv0)))
+                     :status))
+          "v3 authenticates the same host's Ed25519-signed request")
+      (is (= 401 (-> (app (-> (ring/request :put "/api/v3/domain/test.com/host/host0/ipv6")
+                             (ring/body (json/write-str "1::1"))
+                             (sign-request (:host0 host-keys))))
+                     :status))
+          "an HMAC-style signature is rejected on the v3 endpoint"))))
+
+(deftest v3-missing-key-rejected
+  (let [[_pub0 priv0] (gen-keypair-pair)
+        datastore (make-datastore {})
+        mapper (reify mapper/IHostAliasMap
+                 (get-host [_ host _] (keyword host)))
+        auther    (auth/make-authenticator {:host0 (gen-key)} false)
+        ;; note: host0 deliberately absent from the v3 key collection
+        auther-v3 (auth/make-pubkey-authenticator {} false)
+        app    (srv/create-app :host-authenticator    auther
+                               :host-authenticator-v3 auther-v3
+                               :data-store    datastore
+                               :host-mapper   mapper
+                               :max-delay     5)]
+    (testing "a v3 request for a host with no registered public key is rejected"
+      (is (= 404 (-> (app (-> (ring/request :get "/api/v3/domain/test.com/host/host0/ipv4")
+                             (sign-request-v3 priv0)))
+                     :status))))))

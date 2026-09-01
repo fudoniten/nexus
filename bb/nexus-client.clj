@@ -10,6 +10,8 @@
             [cheshire.core :as json])
   (:import [javax.crypto Mac]
            [javax.crypto.spec SecretKeySpec]
+           [java.security KeyFactory Signature]
+           [java.security.spec PKCS8EncodedKeySpec]
            [java.util Base64]
            [java.net InetAddress]
            [java.time Instant]))
@@ -170,7 +172,7 @@
        (filter tailscale?)
        first))
 
-;; --- HMAC Signature ---
+;; --- Signature: HMAC (legacy /api/v2) or Ed25519 (/api/v3) ---
 
 (defn base64-encode [bytes]
   (.encodeToString (Base64/getEncoder) bytes))
@@ -190,8 +192,26 @@
               (.init key))]
     (base64-encode (.doFinal mac (.getBytes message "UTF-8")))))
 
+(defn decode-private-key
+  "Decode a private key string in 'Ed25519:BASE64' format (PKCS8-encoded, as
+   produced by nexus-generate-key --keypair) into a PrivateKey."
+  [key-str]
+  (let [[_algo encoded-key] (str/split (str/trim key-str) #":" 2)
+        key-bytes (.decode (Base64/getDecoder) encoded-key)
+        factory   (KeyFactory/getInstance "Ed25519")]
+    (.generatePrivate factory (PKCS8EncodedKeySpec. key-bytes))))
+
+(defn ed25519-sign
+  "Generate an Ed25519 signature using the encoded private key string."
+  [private-key-str message]
+  (let [private-key (decode-private-key private-key-str)
+        signer (doto (Signature/getInstance "Ed25519")
+                 (.initSign private-key)
+                 (.update (.getBytes message "UTF-8")))]
+    (base64-encode (.sign signer))))
+
 (defn build-request-string
-  "Build the request string for HMAC signing"
+  "Build the request string for signing"
   [method uri timestamp body]
   (str (str/upper-case (name method)) uri timestamp body))
 
@@ -201,12 +221,14 @@
   (.getEpochSecond (Instant/now)))
 
 (defn make-authenticated-request
-  "Make an authenticated HTTP request with HMAC signature"
-  [method url body hmac-key verbose]
+  "Make an authenticated HTTP request, signed with sign-fn (a fn from
+   message string to Base64 signature string -- either hmac-sign or
+   ed25519-sign, partially applied to the encoded key)."
+  [method url body sign-fn verbose]
   (let [timestamp (str (epoch-timestamp))
         uri (str "/" (str/join "/" (drop 3 (str/split url #"/"))))
         req-str (build-request-string method uri timestamp body)
-        signature (hmac-sign hmac-key req-str)]
+        signature (sign-fn req-str)]
     (when verbose
       (println (str "Making " (name method) " request to " url)))
     (try
@@ -225,20 +247,20 @@
 
 ;; --- DDNS Update ---
 
-(defn build-batch-url [server port domain host]
+(defn build-batch-url [server port domain host api-version]
   (let [scheme (if (= port 443) "https" "http")]
-    (format "%s://%s:%d/api/v2/domain/%s/host/%s/batch"
-            scheme server port domain host)))
+    (format "%s://%s:%d/api/%s/domain/%s/host/%s/batch"
+            scheme server port (name api-version) domain host)))
 
 (defn send-batch-update!
   "Send a PUT update. On success returns parsed response body (the confirmed server state);
    on failure returns a map with :error."
-  [{:keys [server port domain hostname hmac-key verbose]} data]
-  (let [url  (build-batch-url server port domain hostname)
+  [{:keys [server port domain hostname sign-fn api-version verbose]} data]
+  (let [url  (build-batch-url server port domain hostname api-version)
         body (json/generate-string data)]
     (when verbose
       (println "Data:" data))
-    (let [response (make-authenticated-request :put url body hmac-key verbose)]
+    (let [response (make-authenticated-request :put url body sign-fn verbose)]
       (if (= 200 (:status response))
         (json/parse-string (:body response) true)
         {:error (:body response)}))))
@@ -366,8 +388,8 @@
    :port {:desc "Server port"
           :default 80
           :coerce :int}
-   :key-file {:desc "HMAC key file path"
-              :required true}
+   :key-file {:desc "HMAC key file path (legacy /api/v2). Exactly one of --key-file or --private-key-file is required."}
+   :private-key-file {:desc "Ed25519 private key file path, as written by nexus-generate-key --keypair (/api/v3). Exactly one of --key-file or --private-key-file is required."}
    :ipv4 {:desc "Report IPv4 address"
           :default true
           :coerce :boolean}
@@ -420,17 +442,25 @@
       (println "ERROR: At least one domain must be specified (--domains)")
       (System/exit 1))
     
-    (when-not (:key-file opts)
-      (println "ERROR: HMAC key file must be specified (--key-file)")
+    (when (and (:key-file opts) (:private-key-file opts))
+      (println "ERROR: specify only one of --key-file or --private-key-file, not both")
       (System/exit 1))
-    
-    (let [hmac-key (str/trim (slurp (:key-file opts)))
+
+    (when-not (or (:key-file opts) (:private-key-file opts))
+      (println "ERROR: a key file must be specified: --key-file (legacy HMAC, /api/v2) or --private-key-file (Ed25519, /api/v3)")
+      (System/exit 1))
+
+    (let [sign-fn (if-let [private-key-file (:private-key-file opts)]
+                    (partial ed25519-sign (str/trim (slurp private-key-file)))
+                    (partial hmac-sign (str/trim (slurp (:key-file opts)))))
+          api-version (if (:private-key-file opts) :v3 :v2)
           ip-type (cond (:tailscale opts) :tailscale
                         (:private opts) :private
                         :else :public)
           aliases-map (parse-aliases (:aliases opts))
           final-opts (assoc opts
-                            :hmac-key hmac-key
+                            :sign-fn sign-fn
+                            :api-version api-version
                             :ip-type ip-type
                             :aliases aliases-map)]
       (try

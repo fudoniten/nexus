@@ -65,3 +65,50 @@
   (-> filename
       (read-key-collection-file)
       (make-authenticator verbose)))
+
+(defrecord PubkeyAuthenticator [key-map verbose]
+
+  ISignatureValidator
+
+  ;; The server only ever verifies requests signed by a client's private
+  ;; key; it never holds a private key itself, so signing is not supported.
+  (sign [_ signer _msg]
+    (throw+ {:type   ::sign-not-supported
+             :signer signer}))
+
+  (validate-signature [_ signer msg sig]
+    (let [key (get key-map signer)]
+      (if key
+        (let [result (crypto/verify-with-public-key key msg sig)]
+          (when verbose
+            (println (format "pubkey signature for host %s valid: %s" signer result)))
+          result)
+        (throw+ {:type   ::missing-key
+                 :signer signer})))))
+
+(defn- decode-public-keys
+  "Takes a map of signer keywords to encoded public key strings and returns a
+   map of decoded public keys."
+  [key-col]
+  (into {} (for [[signer key] key-col]
+             [signer (crypto/decode-public-key key)])))
+
+(defn make-pubkey-authenticator
+  "Creates a new PubkeyAuthenticator instance from a map of client public keys
+   and verbose flag. The client-map should contain signer keywords mapping to
+   encoded public key strings."
+  [client-map verbose]
+  (when verbose (println (format "pubkey authenticator loading keys for: %s"
+                                 (map name (keys client-map)))))
+  (PubkeyAuthenticator. (decode-public-keys client-map) verbose))
+
+(defn initialize-pubkey-collection
+  "Initializes a PubkeyAuthenticator by reading public keys from a JSON file.
+   The file should contain a map of signer names to encoded public key
+   strings. Unlike the HMAC key-collection file, this file contains no secret
+   material and does not need to be kept confidential.
+   Returns configured PubkeyAuthenticator instance."
+  [filename verbose]
+  (-> filename
+      (read-key-collection-file)
+      (make-pubkey-authenticator verbose)))
