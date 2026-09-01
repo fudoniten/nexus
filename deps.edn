@@ -29,7 +29,7 @@
     org.clojure/test.check #:mvn{:version "1.1.1"}},
    :main-opts
    ["-e"
-    "(require,'eftest.runner)(eftest.runner/run-tests,(eftest.runner/find-tests,\"test\"))"]},
+    "(require,'eftest.runner)(eftest.runner/run-tests,(eftest.runner/find-tests,\"test\"),{:multithread?,false})"]},
   :integration
   {:extra-paths ["test"],
    :extra-deps
