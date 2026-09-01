@@ -21,6 +21,12 @@ jobs:
           nix_path: nixpkgs=channel:nixos-24.11
 
       - name: Setup Nix cache
+        # Best-effort build cache: speeds up nix builds when it works, but
+        # must never block CI. It has failed on every run since this
+        # workflow was added (no CACHIX_AUTH_TOKEN secret is configured, or
+        # the "nexus" cache doesn't exist), which was killing the whole job
+        # before the actual checks below ever ran.
+        continue-on-error: true
         uses: cachix/cachix-action@v14
         with:
           name: nexus
