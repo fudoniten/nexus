@@ -83,6 +83,25 @@
     (let [{:keys [public-key]} (crypto/generate-keypair)]
       (is (false? (crypto/verify-with-public-key public-key "test data" "not valid base64!!"))))))
 
+(deftest test-decode-key-rejects-ed25519-key
+  (testing "decode-key (the HMAC path) refuses an Ed25519-formatted key with
+            a clear message, instead of failing inside Mac/getInstance with
+            an opaque NoSuchAlgorithmException -- the symptom of a private
+            key handed to --key-file/--hmac-key-file by mistake"
+    (let [{:keys [private-key]} (crypto/generate-keypair)
+          encoded (crypto/encode-private-key private-key)]
+      (is (thrown-with-msg? clojure.lang.ExceptionInfo #"private key.*--private-key-file"
+                             (crypto/decode-key encoded))))))
+
+(deftest test-decode-private-key-rejects-hmac-key
+  (testing "decode-private-key (the Ed25519 path) refuses an HMAC key with a
+            clear message, the mirror image of decode-key's check, for a key
+            handed to --private-key-file by mistake"
+    (let [key (crypto/generate-key "HmacSHA512")
+          encoded (crypto/encode-key key)]
+      (is (thrown-with-msg? clojure.lang.ExceptionInfo #"not Ed25519.*--key-file"
+                             (crypto/decode-private-key encoded))))))
+
 (deftest test-keypair-roundtrip-through-encoding
   (testing "A keypair signs/verifies correctly after an encode/decode roundtrip"
     (let [{:keys [public-key private-key]} (crypto/generate-keypair)

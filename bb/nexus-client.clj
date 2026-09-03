@@ -178,11 +178,23 @@
   (.encodeToString (Base64/getEncoder) bytes))
 
 (defn decode-key
-  "Decode a key string in 'ALGO:BASE64' format (as produced by nexus-generate-key) into a SecretKeySpec."
+  "Decode a key string in 'ALGO:BASE64' format (as produced by nexus-generate-key) into a SecretKeySpec.
+
+  Rejects an Ed25519-formatted key (a /api/v3 private key, not an HMAC
+  secret) with a clear message rather than letting it reach
+  Mac/getInstance, which fails with an opaque NoSuchAlgorithmException --
+  the classic symptom of a private key handed to --key-file/--hmac-key-file
+  instead of --private-key-file."
   [key-str]
-  (let [[algo encoded-key] (str/split (str/trim key-str) #":" 2)
-        key-bytes (.decode (Base64/getDecoder) encoded-key)]
-    (SecretKeySpec. key-bytes algo)))
+  (let [[algo encoded-key] (str/split (str/trim key-str) #":" 2)]
+    (when (= algo "Ed25519")
+      (throw (ex-info
+              (str "--key-file/--hmac-key-file was given an Ed25519 key "
+                   "(a private key for the /api/v3 pubkey API) -- pass it "
+                   "via --private-key-file instead")
+              {:algorithm algo})))
+    (let [key-bytes (.decode (Base64/getDecoder) encoded-key)]
+      (SecretKeySpec. key-bytes algo))))
 
 (defn hmac-sign
   "Generate an HMAC signature using the encoded key string."
@@ -194,12 +206,23 @@
 
 (defn decode-private-key
   "Decode a private key string in 'Ed25519:BASE64' format (PKCS8-encoded, as
-   produced by nexus-generate-key --keypair) into a PrivateKey."
+   produced by nexus-generate-key --keypair) into a PrivateKey.
+
+   Rejects a non-Ed25519 key (e.g. an HMAC secret) with a clear message --
+   the mirror image of decode-key's check, for a key handed to
+   --private-key-file that should have gone to --key-file/--hmac-key-file
+   instead."
   [key-str]
-  (let [[_algo encoded-key] (str/split (str/trim key-str) #":" 2)
-        key-bytes (.decode (Base64/getDecoder) encoded-key)
-        factory   (KeyFactory/getInstance "Ed25519")]
-    (.generatePrivate factory (PKCS8EncodedKeySpec. key-bytes))))
+  (let [[algo encoded-key] (str/split (str/trim key-str) #":" 2)]
+    (when (not= algo "Ed25519")
+      (throw (ex-info
+              (str "--private-key-file was given a " algo " key, not Ed25519 "
+                   "-- an HMAC key belongs in --key-file/--hmac-key-file "
+                   "instead")
+              {:algorithm algo})))
+    (let [key-bytes (.decode (Base64/getDecoder) encoded-key)
+          factory   (KeyFactory/getInstance "Ed25519")]
+      (.generatePrivate factory (PKCS8EncodedKeySpec. key-bytes)))))
 
 (defn ed25519-sign
   "Generate an Ed25519 signature using the encoded private key string."
