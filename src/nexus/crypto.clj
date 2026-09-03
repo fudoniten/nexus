@@ -47,8 +47,23 @@
       (throw (ex-info "Failed to encode cryptographic key" {:key key} e)))))
 
 (defn decode-key
-  "Decodes a Base64 encoded key string back into a SecretKeySpec object."
+  "Decodes a Base64 encoded key string back into a SecretKeySpec object.
+
+  Rejects an Ed25519-formatted key (a /api/v3 private key, not an HMAC
+  secret) with a clear message rather than letting it reach
+  Mac/getInstance, which fails with an opaque NoSuchAlgorithmException --
+  the classic symptom of a private key handed to --key-file/--hmac-key-file
+  instead of --private-key-file."
   [key-str]
+  (let [[algo _] (.split key-str ":" 2)]
+    ;; Literal "Ed25519" rather than the asymmetric-algorithm var defined
+    ;; further down this file -- this function is compiled before that def.
+    (when (= algo "Ed25519")
+      (throw (ex-info
+              (str "key is " algo " (a private key for the /api/v3 pubkey API), "
+                   "not an HMAC key -- pass it via --private-key-file, not "
+                   "--key-file/--hmac-key-file")
+              {:type ::wrong-key-kind :algorithm algo}))))
   (try
     (let [[algo encoded-key] (.split key-str ":" 2)
           key-bytes (.decode (Base64/getDecoder) encoded-key)]
@@ -133,8 +148,19 @@
       (throw (ex-info "Failed to encode private key" {} e)))))
 
 (defn decode-private-key
-  "Decodes a Base64 encoded private key string back into a PrivateKey object."
+  "Decodes a Base64 encoded private key string back into a PrivateKey object.
+
+  Rejects a non-Ed25519 key (e.g. an HMAC secret) with a clear message --
+  the mirror image of decode-key's check, for a key handed to
+  --private-key-file that should have gone to --key-file/--hmac-key-file
+  instead."
   [key-str]
+  (let [[algo _] (.split key-str ":" 2)]
+    (when (not= algo asymmetric-algorithm)
+      (throw (ex-info
+              (str "key is " algo ", not Ed25519 -- an HMAC key belongs in "
+                   "--key-file/--hmac-key-file, not --private-key-file")
+              {:type ::wrong-key-kind :algorithm algo}))))
   (try
     (let [[_algo encoded-key] (.split key-str ":" 2)
           key-bytes (.decode (Base64/getDecoder) encoded-key)
