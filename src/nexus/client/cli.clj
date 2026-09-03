@@ -225,6 +225,18 @@
       (msg-quit 1 (usage summary ["specify only one of --key-file or --private-key-file, not both"])))
     (when (not (or (:key-file options) (:private-key-file options)))
       (msg-quit 1 (usage summary ["a key file must be specified: --key-file (legacy HMAC, /api/v2) or --private-key-file (Ed25519, /api/v3)"])))
+    (let [key-file-path (or (:private-key-file options) (:key-file options))
+          key-content   (str/trim (slurp key-file-path))
+          ;; Keys are encoded "ALGO:BASE64...", e.g. "Ed25519:MCow..." (as
+          ;; written by nexus-generate-key --keypair) or "HmacSHA512:...".
+          ;; Catch the wrong file/flag combination here, with an
+          ;; actionable message, rather than a raw NoSuchAlgorithmException
+          ;; from Mac.getInstance three layers of exceptions deep.
+          ed25519?      (str/starts-with? key-content "Ed25519:")]
+      (when (and (:private-key-file options) (not ed25519?))
+        (msg-quit 1 (usage summary [(format "--private-key-file (%s) does not look like an Ed25519 key (expected a value starting with \"Ed25519:\", as written by nexus-generate-key --keypair)." key-file-path)])))
+      (when (and (:key-file options) ed25519?)
+        (msg-quit 1 (usage summary [(format "--key-file (%s) points at an Ed25519 key, not an HMAC key. Use --private-key-file instead of --key-file." key-file-path)]))))
     (let [hostname       (or (:hostname options)
                              (-> (InetAddress/getLocalHost) (.getHostName)))
           domain-aliases (into {}

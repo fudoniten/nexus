@@ -450,28 +450,46 @@
       (println "ERROR: a key file must be specified: --key-file (legacy HMAC, /api/v2) or --private-key-file (Ed25519, /api/v3)")
       (System/exit 1))
 
-    (let [sign-fn (if-let [private-key-file (:private-key-file opts)]
-                    (partial ed25519-sign (str/trim (slurp private-key-file)))
-                    (partial hmac-sign (str/trim (slurp (:key-file opts)))))
-          api-version (if (:private-key-file opts) :v3 :v2)
-          ip-type (cond (:tailscale opts) :tailscale
-                        (:private opts) :private
-                        :else :public)
-          aliases-map (parse-aliases (:aliases opts))
-          final-opts (assoc opts
-                            :sign-fn sign-fn
-                            :api-version api-version
-                            :ip-type ip-type
-                            :aliases aliases-map)]
-      (try
-        (let [failures (run-update! final-opts)]
-          (System/exit (min failures 1)))
-        (catch Exception e
-          (binding [*out* *err*]
-            (println "FATAL ERROR:" (.getMessage e)))
-          (when (:verbose final-opts)
-            (.printStackTrace e))
-          (System/exit 1))))))
+    (let [private-key-file (:private-key-file opts)
+          key-file         (:key-file opts)
+          key-file-path    (or private-key-file key-file)
+          key-content      (str/trim (slurp key-file-path))
+          ;; Keys are encoded "ALGO:BASE64...", e.g. "Ed25519:MCow..." (as
+          ;; written by nexus-generate-key --keypair) or "HmacSHA512:...".
+          ;; Catch the wrong file/flag combination here, with an
+          ;; actionable message, rather than letting it fall through to
+          ;; e.g. Mac.getInstance throwing NoSuchAlgorithmException on an
+          ;; Ed25519-labeled key three layers of exceptions deep.
+          ed25519?         (str/starts-with? key-content "Ed25519:")]
+      (when (and private-key-file (not ed25519?))
+        (println (format "ERROR: --private-key-file (%s) does not look like an Ed25519 key (expected a value starting with \"Ed25519:\", as written by nexus-generate-key --keypair)." key-file-path))
+        (System/exit 1))
+      (when (and key-file ed25519?)
+        (println (format "ERROR: --key-file (%s) points at an Ed25519 key, not an HMAC key. Use --private-key-file instead of --key-file." key-file-path))
+        (System/exit 1))
+
+      (let [sign-fn (if private-key-file
+                      (partial ed25519-sign key-content)
+                      (partial hmac-sign key-content))
+            api-version (if private-key-file :v3 :v2)
+            ip-type (cond (:tailscale opts) :tailscale
+                          (:private opts) :private
+                          :else :public)
+            aliases-map (parse-aliases (:aliases opts))
+            final-opts (assoc opts
+                              :sign-fn sign-fn
+                              :api-version api-version
+                              :ip-type ip-type
+                              :aliases aliases-map)]
+        (try
+          (let [failures (run-update! final-opts)]
+            (System/exit (min failures 1)))
+          (catch Exception e
+            (binding [*out* *err*]
+              (println "FATAL ERROR:" (.getMessage e)))
+            (when (:verbose final-opts)
+              (.printStackTrace e))
+            (System/exit 1)))))))
 
 ;; Run main if executed as script
 (when (= *file* (System/getProperty "babashka.file"))
