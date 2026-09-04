@@ -431,3 +431,150 @@
       (is (= 404 (-> (app (-> (ring/request :get "/api/v3/domain/test.com/host/host0/ipv4")
                              (sign-request-v3 priv0)))
                      :status))))))
+
+;; --- /api/v3: public-key authenticated ACME challenge records ---
+;;
+;; Challenge clients (the cert-manager webhook) authenticate with their own
+;; keypair, independently of the hosts that report their addresses. The two
+;; halves of an API version are mounted separately, so these tests pin down
+;; what exists in each combination.
+
+(defn- make-challenge-datastore
+  "A datastore that records challenge writes in an atom, so a test can assert
+  a request actually reached the handler rather than only that it was
+  authenticated."
+  [recorded]
+  (reify ds/IDataStore
+    (get-challenge-records [_ domain] [{:domain domain}])
+    (create-challenge-record [_ domain host challenge-id secret]
+      (swap! recorded conj {:op :create :domain domain :host host
+                            :challenge-id challenge-id :secret secret})
+      challenge-id)
+    (delete-challenge-record [_ domain challenge-id]
+      (swap! recorded conj {:op :delete :domain domain :challenge-id challenge-id})
+      challenge-id)))
+
+(defn- challenge-app
+  "Build an app wired only for challenge requests, with the given v2 and v3
+  challenge authenticators (either may be nil)."
+  [recorded & {:keys [challenge-authenticator challenge-authenticator-v3]}]
+  (srv/create-app :challenge-authenticator    challenge-authenticator
+                  :challenge-authenticator-v3 challenge-authenticator-v3
+                  :data-store  (make-challenge-datastore recorded)
+                  :host-mapper (reify mapper/IHostAliasMap
+                                 (get-host [_ host _] (keyword host)))
+                  :max-delay   5))
+
+(deftest v3-challenge-mounted-without-host-pubkeys
+  (testing "challenge public keys alone bring up /api/v3, so challenge clients
+            can migrate to a keypair before (or without) any host does"
+    (let [[pub priv] (gen-keypair-pair)
+          recorded   (atom [])
+          app        (challenge-app recorded
+                                    :challenge-authenticator-v3
+                                    (auth/make-pubkey-authenticator {:acme pub} false))
+          challenge-id (str (random-uuid))]
+      (is (= 200 (-> (app (-> (ring/request :put (str "/api/v3/domain/test.com/challenge/" challenge-id))
+                              (ring/body (json/write-str {:host "_acme-challenge" :secret "s3cret"}))
+                              (ring/header :service "acme")
+                              (sign-request-v3 priv)))
+                     :status))
+          "an Ed25519-signed challenge request is accepted")
+      (is (= [{:op :create :domain "test.com" :host "_acme-challenge"
+               :challenge-id challenge-id :secret "s3cret"}]
+             @recorded)
+          "the request reached the handler with its payload intact")
+
+      (is (= 401 (-> (app (-> (ring/request :put (str "/api/v3/domain/test.com/challenge/" (random-uuid)))
+                              (ring/body (json/write-str {:host "_acme-challenge" :secret "s3cret"}))
+                              (ring/header :service "acme")
+                              (sign-request-v3 (second (gen-keypair-pair)))))
+                     :status))
+          "a challenge request signed with an unregistered key is rejected"))))
+
+(deftest v3-challenge-delete
+  (testing "a challenge record can be deleted over v3"
+    (let [[pub priv] (gen-keypair-pair)
+          recorded   (atom [])
+          app        (challenge-app recorded
+                                    :challenge-authenticator-v3
+                                    (auth/make-pubkey-authenticator {:acme pub} false))
+          challenge-id (random-uuid)]
+      (is (= 200 (-> (app (-> (ring/request :delete (str "/api/v3/domain/test.com/challenge/" challenge-id))
+                              (ring/header :service "acme")
+                              (sign-request-v3 priv)))
+                     :status)))
+      (is (= [{:op :delete :domain "test.com" :challenge-id challenge-id}] @recorded)))))
+
+(deftest v3-host-routes-absent-without-host-pubkeys
+  (testing "with only challenge public keys configured, the v3 host API is not
+            mounted at all -- it 404s rather than reaching a nil authenticator"
+    (let [[pub _priv] (gen-keypair-pair)
+          [_pub2 priv2] (gen-keypair-pair)
+          app (challenge-app (atom [])
+                             :challenge-authenticator-v3
+                             (auth/make-pubkey-authenticator {:acme pub} false))]
+      (is (= 404 (-> (app (-> (ring/request :get "/api/v3/domain/test.com/host/host0/ipv4")
+                              (sign-request-v3 priv2)))
+                     :status))))))
+
+(deftest v3-challenge-routes-absent-without-challenge-pubkeys
+  (testing "with only host public keys configured, the v3 challenge API is not
+            mounted -- previously it was mounted around a nil authenticator and
+            failed with a 500 on the first request"
+    (let [[pub priv] (gen-keypair-pair)
+          datastore  (make-datastore {})
+          mapper     (reify mapper/IHostAliasMap
+                       (get-host [_ host _] (keyword host)))
+          app        (srv/create-app :host-authenticator-v3
+                                     (auth/make-pubkey-authenticator {:host0 pub} false)
+                                     :data-store  datastore
+                                     :host-mapper mapper
+                                     :max-delay   5)]
+      (is (= 404 (-> (app (-> (ring/request :put (str "/api/v3/domain/test.com/challenge/" (random-uuid)))
+                              (ring/body (json/write-str {:host "_acme-challenge" :secret "s"}))
+                              (ring/header :service "acme")
+                              (sign-request-v3 priv)))
+                     :status))))))
+
+(deftest v2-and-v3-challenge-clients-coexist
+  (testing "a not-yet-migrated HMAC challenge client and a migrated keypair one
+            are served side by side"
+    (let [hmac-key   (gen-key)
+          [pub priv] (gen-keypair-pair)
+          recorded   (atom [])
+          app        (challenge-app recorded
+                                    :challenge-authenticator
+                                    (auth/make-authenticator {:legacy hmac-key} false)
+                                    :challenge-authenticator-v3
+                                    (auth/make-pubkey-authenticator {:migrated pub} false))]
+      (is (= 200 (-> (app (-> (ring/request :delete (str "/api/v2/domain/test.com/challenge/" (random-uuid)))
+                              (ring/header :service "legacy")
+                              (sign-request hmac-key)))
+                     :status))
+          "the legacy client still authenticates on v2")
+      (is (= 200 (-> (app (-> (ring/request :delete (str "/api/v3/domain/test.com/challenge/" (random-uuid)))
+                              (ring/header :service "migrated")
+                              (sign-request-v3 priv)))
+                     :status))
+          "the migrated client authenticates on v3"))))
+
+(deftest v2-not-mounted-without-hmac-authenticators
+  (testing "once every client has migrated, dropping the HMAC key files leaves
+            only /api/v3 -- the server then holds no client secret at all"
+    (let [[pub priv] (gen-keypair-pair)
+          app (challenge-app (atom [])
+                             :challenge-authenticator-v3
+                             (auth/make-pubkey-authenticator {:acme pub} false))]
+      (is (= 404 (-> (app (-> (ring/request :delete (str "/api/v2/domain/test.com/challenge/" (random-uuid)))
+                              (ring/header :service "acme")
+                              (sign-request-v3 priv)))
+                     :status))))))
+
+(deftest create-app-rejects-empty-authenticator-set
+  (testing "an app with no authenticators at all would expose no API, and is a
+            misconfiguration worth failing loudly on rather than serving 404s"
+    (is (thrown? clojure.lang.ExceptionInfo
+                 (srv/create-app :data-store  (make-datastore {})
+                                 :host-mapper (reify mapper/IHostAliasMap
+                                                (get-host [_ host _] (keyword host))))))))

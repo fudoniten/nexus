@@ -132,21 +132,33 @@ See component-specific documentation:
 
 ### Security
 
-- **Two authentication schemes, side by side**: the legacy `/api/v2` API authenticates requests with a symmetric HMAC key shared by client and server; the newer `/api/v3` API authenticates requests signed with a per-host Ed25519 private key, verified by the server against that host's public key. A server can run both at once, so hosts can migrate one at a time. See [Migrating to public-key authentication](#migrating-to-public-key-authentication) below.
-- **Public keys are not secret**: unlike an HMAC key, a host's Ed25519 public key needs no confidential handling on the server -- it can be committed in plaintext (e.g. to version control) via `nexus.server.host-public-keys`. Only the corresponding private key, held solely by that host, needs to be kept secret.
+- **Two authentication schemes, side by side**: the legacy `/api/v2` API authenticates requests with a symmetric HMAC key shared by client and server; the newer `/api/v3` API authenticates requests signed with a per-client Ed25519 private key, verified by the server against that client's public key. A server can run both at once, so clients migrate one at a time. This covers both host records and ACME challenge records. See [Migrating to public-key authentication](#migrating-to-public-key-authentication) below.
+- **Public keys are not secret**: unlike an HMAC key, a client's Ed25519 public key needs no confidential handling on the server -- it can be committed in plaintext (e.g. to version control) via `nexus.server.host-public-keys` or `nexus.server.challenge-public-keys`. Only the corresponding private key, held solely by that client, needs to be kept secret.
 - **Replay protection**: Timestamps must be within 60 seconds
-- **Per-host keys**: Each client has its own key (HMAC or Ed25519)
+- **Per-client keys**: Each host and each challenge client has its own key (HMAC or Ed25519)
 - **HTTPS**: All communication encrypted in transit
 
 ### Migrating to public-key authentication
 
-Each host can move from its shared HMAC key to its own Ed25519 keypair independently, with `/api/v2` and `/api/v3` running side by side on the server throughout:
+Two kinds of client authenticate to Nexus, and each migrates on its own schedule: **hosts**, which report their own addresses and SSHFPs, and **challenge clients** (such as the [cert-manager webhook](https://github.com/fudoniten/cert-manager-webhook-nexus)), which write ACME DNS-01 challenge records. `/api/v2` and `/api/v3` run side by side on the server throughout, and the host and challenge halves of each version are mounted independently -- so migrating challenge clients does not wait on hosts, or vice versa.
+
+#### Hosts
 
 1. Generate a keypair for the host: `nexus-keygen --keypair host.key` (writes `host.key`, the private key, and `host.key.pub`, the public key).
 2. Add the public key to the server's `nexus.server.host-public-keys.<hostname>` option (a plain, non-secret Nix value -- no secret-management step needed).
 3. Deliver `host.key` (the private key) to the host as a secret, and set `nexus.client.private-key-file` to its path, in place of `nexus.client.hmac-key-file`.
 4. Redeploy the host; it now signs its updates with the Ed25519 key against `/api/v3`.
-5. Once every host has migrated, `nexus.server.host-keys`/`client-keys-file` (the legacy HMAC key vault) can be retired.
+5. Once every host has migrated, `nexus.server.client-keys-file` (the legacy HMAC key vault) can be dropped.
+
+#### Challenge clients
+
+1. Generate a keypair for the client: `nexus-keygen --keypair acme.key`.
+2. Add `acme.key.pub`'s contents to the server's `nexus.server.challenge-public-keys.<service>` option, keyed by the service name the client identifies as in its `Service` header.
+3. Give the client the private key. For the cert-manager webhook, put it in the Kubernetes secret and point the solver's `privatekeysecret` at it, in place of `apikeysecret`.
+4. The client signs with Ed25519 and talks to `/api/v3` from then on -- it picks the API version from the kind of key it was given, so there is nothing else to switch over.
+5. Once every challenge client has migrated, `nexus.server.challenge-keys-file` can be dropped.
+
+Both HMAC key files are optional once their clients have moved. A fully migrated server holds **no client secret at all**: `host-public-keys` and `challenge-public-keys` are plain, non-secret Nix values, so the only secret left on the server is its database password.
 
 ## Development
 

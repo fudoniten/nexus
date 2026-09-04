@@ -22,10 +22,43 @@ let
     pkgs.writeText "nexus-challenge-public-keys.json"
     (builtins.toJSON cfg.challenge-public-keys);
 
+  # The secret files the unit must wait for before starting. The HMAC key
+  # files are only present while clients of that kind are still on /api/v2;
+  # a fully migrated deployment has neither, and waiting on a path that will
+  # never appear would hang the unit until its start timeout.
+  secret-files = [ cfg.database.password-file ]
+    ++ (optional (cfg.client-keys-file != null) cfg.client-keys-file)
+    ++ (optional (cfg.challenge-keys-file != null) cfg.challenge-keys-file);
+
+  secrets-present =
+    concatStringsSep " && " (map (f: "[ -f ${f} ]") secret-files);
+
 in {
   imports = [ ./options.nix ];
 
   config = mkIf cfg.enable {
+    # Each API needs at least one kind of key. Catching this here gives a
+    # build-time error naming the option to set, rather than a server that
+    # fails to start on the target host.
+    assertions = [
+      {
+        assertion = cfg.client-keys-file != null || cfg.host-public-keys != { };
+        message = ''
+          nexus.server: set client-keys-file (legacy HMAC, /api/v2) or
+          host-public-keys (Ed25519, /api/v3), or both while hosts migrate.
+        '';
+      }
+      {
+        assertion = cfg.challenge-keys-file != null
+          || cfg.challenge-public-keys != { };
+        message = ''
+          nexus.server: set challenge-keys-file (legacy HMAC, /api/v2) or
+          challenge-public-keys (Ed25519, /api/v3), or both while challenge
+          clients migrate.
+        '';
+      }
+    ];
+
     services.nginx = {
       enable = true;
       virtualHosts = genAttrs cfg.hostnames (_: {
@@ -44,8 +77,6 @@ in {
         ExecStart = pkgs.writeShellScript "nexus-server-start.sh"
           (concatStringsSep " " ([
             "nexus-server"
-            "--host-keys=$CREDENTIALS_DIRECTORY/host-keys.json"
-            "--challenge-keys=$CREDENTIALS_DIRECTORY/challenge-keys.json"
             "--host-alias-map=${host-alias-map}"
             "--database=${db-cfg.database}"
             "--database-user=${cfg.database.user}"
@@ -54,15 +85,20 @@ in {
             "--database-port=${toString db-cfg.port}"
             "--listen-host=127.0.0.1"
             "--listen-port=${toString cfg.internal-port}"
-          ] ++ (optional (cfg.host-public-keys != { })
+          ] ++ (optional (cfg.client-keys-file != null)
+            "--host-keys=$CREDENTIALS_DIRECTORY/host-keys.json")
+          ++ (optional (cfg.challenge-keys-file != null)
+            "--challenge-keys=$CREDENTIALS_DIRECTORY/challenge-keys.json")
+          ++ (optional (cfg.host-public-keys != { })
             "--host-public-keys=${host-public-keys-json}")
           ++ (optional (cfg.challenge-public-keys != { })
             "--challenge-public-keys=${challenge-public-keys-json}")
           ++ (optional cfg.verbose "--verbose")));
 
         ExecStartPre = [
+          # Waits only for the secrets this deployment actually has.
           ("+${pkgs.writeShellScript "nexus-wait-for-secrets.sh" ''
-            until [ -f ${cfg.client-keys-file} ] && [ -f ${cfg.database.password-file} ]; do
+            until ${secrets-present}; do
               echo "nexus-server: waiting for secret files to appear..."
               sleep 5
             done
@@ -75,11 +111,11 @@ in {
             "${pkgs.bash}/bin/bash -c 'until ${ncCmd}; do sleep 1; done;'")
         ];
 
-        LoadCredential = [
-          "db.passwd:${cfg.database.password-file}"
-          "host-keys.json:${cfg.client-keys-file}"
-          "challenge-keys.json:${cfg.challenge-keys-file}"
-        ];
+        LoadCredential = [ "db.passwd:${cfg.database.password-file}" ]
+          ++ (optional (cfg.client-keys-file != null)
+            "host-keys.json:${cfg.client-keys-file}")
+          ++ (optional (cfg.challenge-keys-file != null)
+            "challenge-keys.json:${cfg.challenge-keys-file}");
         DynamicUser = true;
         # Needs access to network for Postgresql
         PrivateNetwork = false;

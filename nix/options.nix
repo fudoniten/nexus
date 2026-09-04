@@ -209,15 +209,25 @@ in {
       };
 
       client-keys-file = mkOption {
-        type = str;
-        description =
-          "Path (on the local host) to JSON file containing a hostname to HMAC key.";
+        type = nullOr str;
+        description = ''
+          Path (on the local host) to JSON file containing a hostname to HMAC
+          key, for the legacy /api/v2. Required unless host-public-keys is
+          set: once every host has migrated to a keypair, this secret can be
+          dropped entirely.
+        '';
+        default = null;
       };
 
       challenge-keys-file = mkOption {
-        type = str;
-        description =
-          "Path (on the local host) to JSON file containing a client to HMAC key for challenge requests.";
+        type = nullOr str;
+        description = ''
+          Path (on the local host) to JSON file containing a client to HMAC
+          key for challenge requests, for the legacy /api/v2. Required unless
+          challenge-public-keys is set: once every challenge client has
+          migrated to a keypair, this secret can be dropped entirely.
+        '';
+        default = null;
       };
 
       host-public-keys = mkOption {
@@ -239,9 +249,17 @@ in {
       challenge-public-keys = mkOption {
         type = attrsOf str;
         description = ''
-          Map of challenge-client name to Ed25519 public key, enabling
-          public-key authenticated challenge requests on /api/v3. Not
-          secret; see host-public-keys.
+          Map of challenge-client name (the "service" a client identifies
+          as) to its Ed25519 public key, as written to <name>.pub by
+          nexus-generate-key --keypair. When non-empty, challenge requests
+          can be authenticated with a keypair on /api/v3, alongside the
+          legacy HMAC-authenticated /api/v2.
+
+          Challenge clients migrate independently of hosts: setting this
+          alone brings up /api/v3 for challenges even while every host is
+          still on /api/v2, and vice versa.
+
+          Not secret; see host-public-keys.
         '';
         default = { };
       };
