@@ -1,9 +1,13 @@
-(ns nexus.integration-test
+(ns ^:integration nexus.integration-test
   "Integration tests for Nexus DDNS client/server communication.
    
    These tests use a real PostgreSQL database to verify end-to-end
    functionality including schema initialization, HTTP request handling,
-   HMAC authentication, and database persistence."
+   HMAC authentication, and database persistence.
+
+   Marked ^:integration so `clojure -M:test` skips them: they need a live
+   PostgreSQL instance, and without one the :once fixture below errors before
+   any test body runs. Run them with `clojure -M:integration`."
   (:require [clojure.test :refer [deftest testing is use-fixtures run-tests]]
             [clojure.java.io :as io]
             [clojure.data.json :as json]

@@ -324,6 +324,34 @@
         {:status 500
          :body "Failed to generate metrics"}))))
 
+(def ^:private not-json
+  "Sentinel for a body that is not (entirely) JSON. A parse can legitimately
+  produce nil, so nil cannot serve as the signal."
+  ::not-json)
+
+(defn- parse-json
+  "Parses body-str as a single JSON value, returning not-json unless the whole
+  string is consumed.
+
+  The whole-string check is the point: clojure.data.json reads one value and
+  ignores whatever follows, so an SSHFP record -- which always begins with a
+  digit -- parses as just that leading number. \"1 2 A1B2...\" came back as 1
+  rather than failing, the plain-text fallback never ran, and the handler then
+  tried to treat a Long as a sequence and returned 500."
+  [body-str]
+  (try
+    ;; 64-char pushback buffer, matching what data.json's own read-str uses:
+    ;; the default PushbackReader buffer holds a single character, and parsing
+    ;; an object or array pushes back more than that, failing with "Pushback
+    ;; buffer overflow".
+    (with-open [reader (java.io.PushbackReader. (java.io.StringReader. body-str) 64)]
+      (let [value (json/read reader {:key-fn keyword})]
+        (if (str/blank? (slurp reader))
+          value
+          not-json)))
+    (catch Exception _
+      not-json)))
+
 (defn- decode-body
   "Middleware to parse the request body. Attempts JSON parsing first;
   falls back to plain text if the body is not valid JSON."
@@ -331,12 +359,8 @@
   (fn [{:keys [body] :as req}]
     (if body
       (let [body-str (slurp body)
-            payload (if (= body-str "")
-                      {}
-                      (try
-                        (json/read-str body-str {:key-fn keyword})
-                        (catch Exception _
-                          body-str)))]
+            parsed   (if (= body-str "") {} (parse-json body-str))
+            payload  (if (= parsed not-json) body-str parsed)]
         (handler (-> req
                      (assoc :payload payload)
                      (assoc :body-str body-str))))
@@ -458,20 +482,22 @@
                         :method (-> req :request-method name)})
          (throw e))))))
 
-(defn- api-domain-routes
-  "Build the /domain/:domain route subtree (challenges, challenge, host) for
-  one API version, given that version's authenticators."
-  [{:keys [host-authenticator challenge-authenticator data-store host-mapper
-           metrics-registry max-delay verbose]}]
-  ["/domain/:domain"
-   ["/challenges" {:middleware [(make-challenge-signature-authenticator verbose challenge-authenticator metrics-registry)
+(defn- challenge-routes
+  "Build the challenge-record routes (/challenges, /challenge) for one API
+  version."
+  [{:keys [challenge-authenticator data-store metrics-registry max-delay verbose]}]
+  [["/challenges" {:middleware [(make-challenge-signature-authenticator verbose challenge-authenticator metrics-registry)
                                 (make-timing-validator max-delay)]}
     ["/list" {:get {:handler (get-challenge-records data-store)}}]]
    ["/challenge" {:middleware [(make-challenge-signature-authenticator verbose challenge-authenticator metrics-registry)
                                (make-timing-validator max-delay)]}
     ["/:challenge-id" {:put    {:handler (create-challenge-record data-store metrics-registry verbose)}
-                       :delete {:handler (delete-challenge-record data-store metrics-registry)}}]]
-   ["/host" {:middleware [(make-host-signature-authenticator verbose host-authenticator host-mapper metrics-registry)
+                       :delete {:handler (delete-challenge-record data-store metrics-registry)}}]]])
+
+(defn- host-routes
+  "Build the host-record routes (/host) for one API version."
+  [{:keys [host-authenticator data-store host-mapper metrics-registry max-delay verbose]}]
+  [["/host" {:middleware [(make-host-signature-authenticator verbose host-authenticator host-mapper metrics-registry)
                           (make-timing-validator max-delay)]}
     ["/:host"
      ["/ipv4"   {:put {:handler (set-host-ipv4 data-store metrics-registry)}
@@ -482,6 +508,21 @@
                  :get {:handler (get-host-sshfps data-store)}}]
      ["/batch"  {:put {:handler (set-host-batch data-store metrics-registry host-mapper)}
                 :get {:handler (get-host-batch data-store)}}]]]])
+
+(defn- api-domain-routes
+  "Build the /domain/:domain route subtree (challenges, challenge, host) for
+  one API version, given that version's authenticators.
+
+  The host and challenge halves of an API version are mounted independently,
+  each only when an authenticator for it was configured. A deployment can
+  migrate its hosts and its challenge clients to public keys at different
+  times, so /api/v3 routinely runs with only one of the two available; the
+  half with no authenticator is simply absent, and 404s, rather than being
+  mounted around a nil authenticator that would throw on the first request."
+  [{:keys [host-authenticator challenge-authenticator] :as opts}]
+  (into ["/domain/:domain"]
+        (concat (when challenge-authenticator (challenge-routes opts))
+                (when host-authenticator      (host-routes opts)))))
 
 (defn- api-version-routes
   "Build the full /<version> route subtree (health, records, domain) for one
@@ -502,12 +543,18 @@
   "Create the Nexus server app with the given configuration.
 
   host-authenticator/challenge-authenticator authenticate requests to the
-  legacy HMAC-signed /api/v2 API, always mounted.
+  legacy HMAC-signed /api/v2 API.
 
   host-authenticator-v3/challenge-authenticator-v3 authenticate requests to
-  the Ed25519-signed /api/v3 API. When host-authenticator-v3 is provided,
-  /api/v3 is mounted alongside /api/v2, so already-migrated and
-  not-yet-migrated hosts can both be served during the migration window."
+  the Ed25519-signed /api/v3 API. When either is provided, /api/v3 is mounted
+  alongside /api/v2, so already-migrated and not-yet-migrated clients can both
+  be served during the migration window.
+
+  Within a version, the host and challenge APIs are mounted independently:
+  whichever authenticators are given decide which routes exist. Hosts and
+  challenge clients therefore migrate on their own schedules, and a fully
+  migrated deployment can drop its HMAC key files entirely, leaving only
+  /api/v3 mounted."
   [& {:keys [host-authenticator
              challenge-authenticator
              host-authenticator-v3
@@ -518,16 +565,20 @@
              host-mapper]
       :or   {max-delay 60
              verbose   false}}]
+  (when-not (or host-authenticator challenge-authenticator
+                host-authenticator-v3 challenge-authenticator-v3)
+    (throw (ex-info "no authenticators configured: the server would expose no API at all" {})))
   (let [metrics-registry (metrics/initialize-metrics)
         base-opts {:data-store       data-store
                    :host-mapper      host-mapper
                    :metrics-registry metrics-registry
                    :max-delay        max-delay
                    :verbose          verbose}
-        v2-routes (api-version-routes "v2" (assoc base-opts
-                                                   :host-authenticator      host-authenticator
-                                                   :challenge-authenticator challenge-authenticator))
-        v3-routes (when host-authenticator-v3
+        v2-routes (when (or host-authenticator challenge-authenticator)
+                    (api-version-routes "v2" (assoc base-opts
+                                                     :host-authenticator      host-authenticator
+                                                     :challenge-authenticator challenge-authenticator)))
+        v3-routes (when (or host-authenticator-v3 challenge-authenticator-v3)
                     (api-version-routes "v3" (assoc base-opts
                                                      :host-authenticator      host-authenticator-v3
                                                      :challenge-authenticator challenge-authenticator-v3)))]
