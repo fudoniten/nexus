@@ -37,9 +37,16 @@
           default = nexus-client;
 
           # Crypto library (for external consumers if needed)
+          #
+          # cljLibs matters here as much as it does for the binaries below:
+          # without it the build has no pre-fetched org.fudo/fudo-clojure and
+          # the Clojure tooling shells out to `git clone` inside the nix
+          # sandbox, where there is neither git nor network -- surfacing as
+          # "Exec failed, error: 2 (No such file or directory)".
           nexus-crypto = mkClojureLib {
             name = "org.fudo/nexus.crypto";
             src = ./.;
+            inherit cljLibs;
           };
 
           # Key generation utility
