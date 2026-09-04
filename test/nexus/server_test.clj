@@ -120,10 +120,14 @@
                                :data-store    datastore
                                :host-mapper   mapper
                                :max-delay     5)]
-    (testing "missing-timestamp"
+    ;; The signature check runs ahead of the timestamp check on host routes,
+    ;; so an unsigned request is rejected there with 401 whether or not it
+    ;; carries a timestamp. (406 is the challenge API's code for a missing
+    ;; signature; these are host routes.)
+    (testing "missing-signature-and-timestamp"
       (is (= (-> (app (ring/request :get "/api/v2/domain/test.com/host/host0/ipv4"))
                  :status)
-             406)))
+             401)))
 
     (testing "old-timestamp"
       (is (= (-> (app (-> (ring/request :get "/api/v2/domain/test.com/host/host0/ipv4")
@@ -136,7 +140,7 @@
       (is (= (-> (app (-> (ring/request :get "/api/v2/domain/test.com/host/host0/ipv4")
                           (ring/header  :access-timestamp (current-epoch-timestamp))))
                  :status)
-             406)))
+             401)))
 
     (testing "invalid-signature"
       (is (= (-> (app (-> (ring/request :get "/api/v2/domain/test.com/host/host0/ipv4")
@@ -193,11 +197,15 @@
                  :status)
              200)))
 
+    ;; get-host-ipv4 returns (str ip), and encode-body deliberately leaves an
+    ;; already-string body alone, so the body arrives bare rather than
+    ;; JSON-quoted. get-sshfps below returns a collection, which does get
+    ;; JSON-encoded.
     (testing "get-ipv4"
       (is (= (-> (app (-> (ring/request :get "/api/v2/domain/test.com/host/host0/ipv4")
                           (sign-request (:host0 host-keys))))
                  :body)
-             (json/write-str ipv4))))
+             ipv4)))
 
     (testing "get-ipv6-status"
       (is (= (-> (app (-> (ring/request :get "/api/v2/domain/test.com/host/host0/ipv6")
@@ -209,7 +217,7 @@
       (is (= (-> (app (-> (ring/request :get "/api/v2/domain/test.com/host/host0/ipv6")
                           (sign-request (:host0 host-keys))))
                  :body)
-             (json/write-str ipv6))))
+             ipv6)))
 
     (testing "get-sshfps"
       (is (= (-> (app (-> (ring/request :get "/api/v2/domain/test.com/host/host0/sshfps")

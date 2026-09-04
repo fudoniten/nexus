@@ -324,6 +324,34 @@
         {:status 500
          :body "Failed to generate metrics"}))))
 
+(def ^:private not-json
+  "Sentinel for a body that is not (entirely) JSON. A parse can legitimately
+  produce nil, so nil cannot serve as the signal."
+  ::not-json)
+
+(defn- parse-json
+  "Parses body-str as a single JSON value, returning not-json unless the whole
+  string is consumed.
+
+  The whole-string check is the point: clojure.data.json reads one value and
+  ignores whatever follows, so an SSHFP record -- which always begins with a
+  digit -- parses as just that leading number. \"1 2 A1B2...\" came back as 1
+  rather than failing, the plain-text fallback never ran, and the handler then
+  tried to treat a Long as a sequence and returned 500."
+  [body-str]
+  (try
+    ;; 64-char pushback buffer, matching what data.json's own read-str uses:
+    ;; the default PushbackReader buffer holds a single character, and parsing
+    ;; an object or array pushes back more than that, failing with "Pushback
+    ;; buffer overflow".
+    (with-open [reader (java.io.PushbackReader. (java.io.StringReader. body-str) 64)]
+      (let [value (json/read reader {:key-fn keyword})]
+        (if (str/blank? (slurp reader))
+          value
+          not-json)))
+    (catch Exception _
+      not-json)))
+
 (defn- decode-body
   "Middleware to parse the request body. Attempts JSON parsing first;
   falls back to plain text if the body is not valid JSON."
@@ -331,12 +359,8 @@
   (fn [{:keys [body] :as req}]
     (if body
       (let [body-str (slurp body)
-            payload (if (= body-str "")
-                      {}
-                      (try
-                        (json/read-str body-str {:key-fn keyword})
-                        (catch Exception _
-                          body-str)))]
+            parsed   (if (= body-str "") {} (parse-json body-str))
+            payload  (if (= parsed not-json) body-str parsed)]
         (handler (-> req
                      (assoc :payload payload)
                      (assoc :body-str body-str))))
