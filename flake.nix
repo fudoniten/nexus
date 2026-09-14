@@ -2,15 +2,14 @@
   description = "Nexus DDNS System - Monorepo";
 
   inputs = {
-    nixpkgs.url = "nixpkgs/nixos-25.11";
+    nixpkgs.url = "nixpkgs/nixos-26.05";
     utils.url = "github:numtide/flake-utils";
     helpers = {
       url = "github:fudoniten/fudo-nix-helpers";
       inputs.nixpkgs.follows = "nixpkgs";
     };
     fudo-clojure = {
-      url =
-        "github:fudoniten/fudo-clojure/a32e527a6db2962f29bbbe33c1c3475c13198a08";
+      url = "github:fudoniten/fudo-clojure";
       inputs = {
         nixpkgs.follows = "nixpkgs";
         helpers.follows = "helpers";
