@@ -15,7 +15,7 @@
   io.prometheus/simpleclient_httpserver #:mvn{:version "0.16.0"},
   org.fudo/fudo-clojure
   #:git{:url "https://github.com/fudoniten/fudo-clojure.git",
-        :sha "a32e527a6db2962f29bbbe33c1c3475c13198a08"},
+        :sha "2156a2203ba07c059e29f6948e59e669378897af"},
   clj-commons/iapetos #:mvn{:version "0.1.14"},
   metosin/reitit #:mvn{:version "0.6.0"},
   ring/ring-mock #:mvn{:version "0.4.0"},

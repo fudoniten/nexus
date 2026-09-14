@@ -122,6 +122,7 @@
       "original": {
         "owner": "fudoniten",
         "repo": "fudo-clojure",
+        "rev": "2156a2203ba07c059e29f6948e59e669378897af",
         "type": "github"
       }
     },
