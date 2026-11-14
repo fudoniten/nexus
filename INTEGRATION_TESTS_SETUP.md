@@ -95,8 +95,6 @@ The integration tests cover:
   - Verify all records persisted correctly
 
 ### ✅ Database Features
-- SOA serial auto-increment on record changes
-- PostgreSQL trigger functionality
 - Transaction handling
 - Schema initialization
 - Domain/record creation

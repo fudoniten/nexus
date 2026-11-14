@@ -126,9 +126,14 @@ See component-specific documentation:
    - Send authenticated updates to configured servers
 3. **Server**: Receives authenticated requests and:
    - Validates the request signature and timestamp (60s window)
-   - Updates PowerDNS records in PostgreSQL
-   - Increments SOA serial (via database trigger)
-4. **PowerDNS**: Serves updated DNS records to clients
+   - Applies the change through the PowerDNS HTTP API (on 127.0.0.1). A batch
+     update is the host's whole state: a record type it omits is removed.
+     A CNAME conflict comes back to the client as 409.
+4. **PowerDNS**: In the same change, refuses CNAME conflicts, rectifies the
+   zone for DNSSEC, raises the SOA serial (SOA-EDIT-API=INCREASE), and sends
+   NOTIFY to the secondaries. A Postgres trigger refuses CNAME conflicts from
+   any other writer, and a weekly serial bump makes secondaries pick up
+   PowerDNS's weekly signature rollover.
 
 ### Security
 

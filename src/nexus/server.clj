@@ -13,97 +13,86 @@
             [fudo-clojure.ip :as ip]
             [fudo-clojure.common :refer [current-epoch-timestamp]]))
 
-(defn- set-host-ipv4 
-  "Handler for setting a host's IPv4 address record"
-  [store metrics-registry]
+(defn- store-write
+  "Run a datastore write, turning a change the DNS server refused (a CNAME
+  conflict, an unknown zone, a bad value) into a 4xx response the client can
+  act on, and anything else into a logged 500."
+  [event context f]
+  (try+
+   (f)
+   (catch store/store-error? e
+     (log/warn! (merge {:event (str event "-refused")
+                        :reason (::store/message e)}
+                       context))
+     (store/error-response e))
+   (catch Exception e
+     (log/log-error (str event "-failed") e context)
+     {:status 500
+      :body "Internal server error"})))
+
+(defn- set-host-ip
+  "Handler for setting a host's IPv4 or IPv6 address record"
+  [store metrics-registry {:keys [family valid? write! counter event]}]
   (fn [{:keys [payload]
        {:keys [host domain]} :path-params}]
-    (try+
-     (let [ip (ip/from-string payload)]
-       (if (not (ip/ipv4? ip))
-         {:status 400
-          :body (format "rejected: not a v4 IP: %s" payload)}
-         (do (store/set-host-ipv4 store domain host ip)
-             (metrics/inc-counter! metrics-registry :ipv4-updates)
-             {:status 200 :body (str ip)})))
-     (catch IllegalArgumentException _
-       {:status 400
-        :body (format "rejected: failed to parse IP: %s" payload)})
-     (catch Exception e
-       (log/log-error "set-host-ipv4-failed" e 
-                     {:domain domain
-                      :host host
-                      :ip (str payload)})
-       {:status 500
-        :body "Internal server error"}))))
+    (store-write event {:domain domain :host host :ip (str payload)}
+                 (fn []
+                   (try
+                     (let [ip (ip/from-string payload)]
+                       (if (not (valid? ip))
+                         {:status 400
+                          :body (format "rejected: not a %s IP: %s" family payload)}
+                         (do (write! store domain host ip)
+                             (metrics/inc-counter! metrics-registry counter)
+                             {:status 200 :body (str ip)})))
+                     (catch IllegalArgumentException _
+                       {:status 400
+                        :body (format "rejected: failed to parse IP: %s" payload)}))))))
+
+(defn- set-host-ipv4
+  "Handler for setting a host's IPv4 address record"
+  [store metrics-registry]
+  (set-host-ip store metrics-registry {:family "v4" :valid? ip/ipv4?
+                                       :write! store/set-host-ipv4
+                                       :counter :ipv4-updates
+                                       :event "set-host-ipv4"}))
 
 (defn- set-host-ipv6
   "Handler for setting a host's IPv6 address record"
-  [store metrics-registry]  
-  (fn [{:keys [payload]
-       {:keys [host domain]} :path-params}]
-    (try+
-     (let [ip (ip/from-string payload)]
-       (if (not (ip/ipv6? ip))
-         {:status 400
-          :body (format "rejected: not a v6 IP: %s" payload)}
-         (do (store/set-host-ipv6 store domain host ip)
-             (metrics/inc-counter! metrics-registry :ipv6-updates)
-             {:status 200 :body (str ip)})))
-     (catch IllegalArgumentException _
-       {:status 400
-        :body (format "rejected: failed to parse IP: %s" payload)})
-     (catch Exception e
-       (log/log-error "set-host-ipv6-failed" e
-                     {:domain domain
-                      :host host 
-                      :ip (str payload)})
-       {:status 500
-        :body "Internal server error"}))))
+  [store metrics-registry]
+  (set-host-ip store metrics-registry {:family "v6" :valid? ip/ipv6?
+                                       :write! store/set-host-ipv6
+                                       :counter :ipv6-updates
+                                       :event "set-host-ipv6"}))
 
 (defn- valid-sshfp? [sshfp]
   (not (nil? (re-matches #"^[12346] [12] [0-9a-fA-F]{16,256}$" sshfp))))
 
-(defn- alias?
-  "Returns true if the host is an alias (CNAME) rather than a canonical hostname.
-  A host is an alias when the host-mapper resolves it to a different canonical name."
-  [host-mapper host domain]
-  (not= (keyword host) (host-map/get-host host-mapper host domain)))
+(defn- sshfp-lines
+  "SSHFP records from a payload: a newline-separated string, or a collection."
+  [payload]
+  (if (string? payload)
+    (->> (str/split-lines payload)
+         (map str/trim)
+         (remove str/blank?))
+    payload))
 
 (defn- set-host-sshfps
-  "Handler for setting a host's SSHFP records.
-  Drops SSHFP records for aliases (CNAMEs) with a warning, since CNAME and
-  SSHFP records for the same name are incompatible and prevent zone propagation."
-  [store metrics-registry host-mapper]
+  "Handler for setting a host's SSHFP records. A name that is a CNAME is
+  refused by the datastore (409); an alias from the host-alias map is just
+  another name the host publishes its own records under."
+  [store metrics-registry]
   (fn [{:keys [payload]
        {:keys [host domain]} :path-params}]
-    (try+
-     (if (alias? host-mapper host domain)
-       (do (log/warn! {:event "sshfp-rejected-for-alias"
-                       :domain domain
-                       :host host
-                       :reason "CNAME and SSHFP records are incompatible"})
-           {:status 200
-            :body (str "warning: SSHFP records dropped for alias " host "." domain
-                       " (CNAME and SSHFP records are incompatible)")})
-       (let [;; If payload is a string, split by newlines; otherwise treat as collection
-             sshfp-lines (if (string? payload)
-                           (->> (str/split-lines payload)
-                                (map str/trim)
-                                (filter #(not (str/blank? %))))
-                           payload)]
-         (if (not (every? valid-sshfp? sshfp-lines))
-           {:status 400 :body (str "rejected: invalid sshfp: "
-                                   (some (comp not valid-sshfp?) sshfp-lines))}
-           (do (store/set-host-sshfps store domain host sshfp-lines)
-               (metrics/inc-counter! metrics-registry :sshfp-updates)
-               {:status 200 :body (str/join "\n" sshfp-lines)}))))
-     (catch Exception e
-       (log/log-error "set-host-sshfps-failed" e
-                     {:domain domain
-                      :host host})
-       {:status 500
-        :body "Internal server error"}))))
+    (store-write "set-host-sshfps" {:domain domain :host host}
+                 (fn []
+                   (let [lines (sshfp-lines payload)]
+                     (if (not (every? valid-sshfp? lines))
+                       {:status 400 :body (str "rejected: invalid sshfp: "
+                                               (first (remove valid-sshfp? lines)))}
+                       (do (store/set-host-sshfps store domain host lines)
+                           (metrics/inc-counter! metrics-registry :sshfp-updates)
+                           {:status 200 :body (str/join "\n" lines)})))))))
 
 (defn- get-host-ipv4
   "Handler for retrieving a host's IPv4 address record"
@@ -165,79 +154,65 @@
         :body (cond-> {}
                 ipv4   (assoc :ipv4 (str ipv4))
                 ipv6   (assoc :ipv6 (str ipv6))
-                sshfps (assoc :sshfps (vec sshfps)))})
+                (seq sshfps) (assoc :sshfps (vec sshfps)))})
      (catch Exception e
        (log/log-error "get-host-batch-failed" e {:domain domain :host host})
        {:status 500 :body "Internal server error"}))))
 
+(defn- validate-batch
+  "Validate a batch payload. Returns [errors data], data holding parsed IPs."
+  [payload]
+  (let [parse-ip (fn [k family valid?]
+                   (when-let [s (get payload k)]
+                     (try
+                       (let [ip (ip/from-string s)]
+                         (if (valid? ip)
+                           [nil [k ip]]
+                           [(format "not a valid %s: %s" family s)]))
+                       (catch IllegalArgumentException _
+                         [(format "failed to parse %s: %s" family s)]))))
+        sshfps   (when-let [s (:sshfps payload)]
+                   (let [lines (sshfp-lines s)]
+                     (if (every? valid-sshfp? lines)
+                       [nil [:sshfps lines]]
+                       [(str "invalid sshfp records: " (vec (remove valid-sshfp? lines)))])))
+        results  (remove nil? [(parse-ip :ipv4 "IPv4" ip/ipv4?)
+                               (parse-ip :ipv6 "IPv6" ip/ipv6?)
+                               sshfps])]
+    [(keep first results)
+     (into {} (keep second results))]))
+
 (defn- set-host-batch
-  "Handler for batch updating multiple record types for a host.
-  Silently drops SSHFP records for aliases (CNAMEs) with a warning, since CNAME
-  and SSHFP records for the same name are incompatible."
-  [store metrics-registry host-mapper]
+  "Handler for setting a host's full record state in one change. The payload
+  is the whole state: a record type it leaves out is removed from the host,
+  so an address the host no longer has does not linger in DNS."
+  [store metrics-registry]
   (fn [{:keys [payload]
        {:keys [host domain]} :path-params}]
-    (try+
-     (let [errors (atom [])
-           validated-data (atom {})
-           is-alias (alias? host-mapper host domain)]
-       ;; Validate IPv4 if present
-       (when-let [ipv4-str (:ipv4 payload)]
-         (try
-           (let [ip (ip/from-string ipv4-str)]
-             (if (ip/ipv4? ip)
-               (swap! validated-data assoc :ipv4 ip)
-               (swap! errors conj (format "not a valid IPv4: %s" ipv4-str))))
-           (catch IllegalArgumentException _
-             (swap! errors conj (format "failed to parse IPv4: %s" ipv4-str)))))
+    (store-write "set-host-batch" {:domain domain :host host :payload payload}
+                 (fn []
+                   (let [[errors data] (if (map? payload)
+                                         (validate-batch payload)
+                                         [["batch payload must be a JSON object"] {}])]
+                     (cond
+                       (seq errors)
+                       {:status 400 :body {:errors (vec errors)}}
 
-       ;; Validate IPv6 if present
-       (when-let [ipv6-str (:ipv6 payload)]
-         (try
-           (let [ip (ip/from-string ipv6-str)]
-             (if (ip/ipv6? ip)
-               (swap! validated-data assoc :ipv6 ip)
-               (swap! errors conj (format "not a valid IPv6: %s" ipv6-str))))
-           (catch IllegalArgumentException _
-             (swap! errors conj (format "failed to parse IPv6: %s" ipv6-str)))))
+                       ;; The batch replaces the host's whole state, so one
+                       ;; with no address at all would delete the host from
+                       ;; DNS. That is almost always a client that ran before
+                       ;; its network came up, not a host that wants to vanish.
+                       (not (or (:ipv4 data) (:ipv6 data)))
+                       {:status 400 :body {:errors ["batch has neither ipv4 nor ipv6; refusing to remove all of the host's addresses"]}}
 
-        ;; Validate SSHFPs if present, but drop for aliases
-        (when-let [sshfps (:sshfps payload)]
-          (if is-alias
-            (log/warn! {:event "sshfp-dropped-from-batch-for-alias"
-                        :domain domain
-                        :host host
-                        :reason "CNAME and SSHFP records are incompatible"})
-            (let [;; If sshfps is a string, split by newlines; otherwise treat as collection
-                  sshfp-lines (if (string? sshfps)
-                                (->> (str/split-lines sshfps)
-                                     (map str/trim)
-                                     (filter #(not (str/blank? %))))
-                                sshfps)]
-              (if (every? valid-sshfp? sshfp-lines)
-                (swap! validated-data assoc :sshfps sshfp-lines)
-                (swap! errors conj (str "invalid sshfp records: "
-                                        (filter (comp not valid-sshfp?) sshfp-lines)))))))
-
-        ;; Return errors if any validation failed
-        (if (seq @errors)
-          {:status 400 :body {:errors @errors}}
-          ;; Otherwise perform batch update
-          (let [data @validated-data]
-            (store/set-host-batch store domain host data)
-            (metrics/inc-counter! metrics-registry :batch-updates)
-            {:status 200
-             :body (cond-> {}
-                     (:ipv4 data)   (assoc :ipv4 (str (:ipv4 data)))
-                     (:ipv6 data)   (assoc :ipv6 (str (:ipv6 data)))
-                     (:sshfps data) (assoc :sshfps (:sshfps data)))})))
-     (catch Exception e
-       (log/log-error "set-host-batch-failed" e
-                     {:domain domain
-                      :host host
-                      :payload payload})
-       {:status 500
-        :body "Internal server error"}))))
+                       :else
+                       (do (store/set-host-batch store domain host data)
+                           (metrics/inc-counter! metrics-registry :batch-updates)
+                           {:status 200
+                            :body (cond-> {}
+                                    (:ipv4 data)   (assoc :ipv4 (str (:ipv4 data)))
+                                    (:ipv6 data)   (assoc :ipv6 (str (:ipv6 data)))
+                                    (:sshfps data) (assoc :sshfps (vec (:sshfps data))))})))))))
 
 (defn- get-challenge-records
   "Handler for listing ACME challenge records for a domain"
@@ -249,41 +224,33 @@
          {:status 200 :body challenge-records}
          {:status 404 :body (format "Challenge records not found for domain %s" domain)}))
      (catch Exception e
+       (log/log-error "get-challenge-records-failed" e {:domain domain})
        {:status 500
-        :body {:error (format "an unknown error has occurred: %s"
-                              (.toString e))}}))))
+        :body {:error "Internal server error"}}))))
 
 (defn- create-challenge-record
   "Handler for creating a new ACME challenge record"
   [store metrics-registry verbose]
   (fn [{payload                       :payload
        {:keys [domain challenge-id]} :path-params}]
-    (let [{:keys [host secret]} payload]
+    (let [{:keys [host secret]} (when (map? payload) payload)]
       (when verbose
-        (println (format "challenge payload keys: %s" (keys payload))))
-      (try+
-       (do (store/create-challenge-record store domain host challenge-id secret)
-           (metrics/inc-counter! metrics-registry :challenge-creates)
-           {:status 200 :body (str challenge-id)})
-       (catch Exception e
-         {:status 500
-          :body {:error (format "an unknown error has occurred: %s"
-                                (.toString e))}})))))
+        (println (format "challenge payload keys: %s" (when (map? payload) (keys payload)))))
+      (store-write "create-challenge-record" {:domain domain :host host}
+                   (fn []
+                     (store/create-challenge-record store domain host challenge-id secret)
+                     (metrics/inc-counter! metrics-registry :challenge-creates)
+                     {:status 200 :body (str challenge-id)})))))
 
 (defn- delete-challenge-record
   "Handler for deleting an ACME challenge record"
   [store metrics-registry]
   (fn [{{:keys [domain challenge-id]} :path-params}]
-    (try+
-     (do (store/delete-challenge-record store domain (parse-uuid challenge-id))
-         (metrics/inc-counter! metrics-registry :challenge-deletes)
-         {:status 200 :body (str challenge-id)})
-     (catch Exception e
-       (when (:verbose store)
-         (println (format "an unknown error has occurred: %s" (.toString e))))
-       {:status 500
-        :body {:error (format "an unknown error has occurred: %s"
-                              (.toString e))}}))))
+    (store-write "delete-challenge-record" {:domain domain :challenge-id challenge-id}
+                 (fn []
+                   (store/delete-challenge-record store domain (parse-uuid challenge-id))
+                   (metrics/inc-counter! metrics-registry :challenge-deletes)
+                   {:status 200 :body (str challenge-id)}))))
 
 (defn- list-records
   "Handler for listing all DNS records"
@@ -504,9 +471,9 @@
                  :get {:handler (get-host-ipv4 data-store)}}]
      ["/ipv6"   {:put {:handler (set-host-ipv6 data-store metrics-registry)}
                  :get {:handler (get-host-ipv6 data-store)}}]
-     ["/sshfps" {:put {:handler (set-host-sshfps data-store metrics-registry host-mapper)}
+     ["/sshfps" {:put {:handler (set-host-sshfps data-store metrics-registry)}
                  :get {:handler (get-host-sshfps data-store)}}]
-     ["/batch"  {:put {:handler (set-host-batch data-store metrics-registry host-mapper)}
+     ["/batch"  {:put {:handler (set-host-batch data-store metrics-registry)}
                 :get {:handler (get-host-batch data-store)}}]]]])
 
 (defn- api-domain-routes

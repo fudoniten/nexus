@@ -290,10 +290,18 @@
 
 ;; --- Local State Cache ---
 
-(defn load-cached-state [state-file]
+(defn load-cached-state
+  "The server-confirmed state from the last successful update, or nil when
+  there is none or it is older than max-age-seconds. The age limit is what
+  repairs the server side: records deleted or fixed by hand there are
+  re-sent within a day, instead of waiting for this host's IP to change."
+  [state-file max-age-seconds]
   (try
-    (when (.exists (io/file state-file))
-      (edn/read-string (slurp state-file)))
+    (let [f (io/file state-file)]
+      (when (and (.exists f)
+                 (< (- (System/currentTimeMillis) (.lastModified f))
+                    (* 1000 max-age-seconds)))
+        (edn/read-string (slurp f))))
     (catch Exception _
       nil)))
 
@@ -368,15 +376,25 @@
    Returns number of failures."
   [opts]
   (let [state-file    (:state-file opts)
-        cached-state  (load-cached-state state-file)
+        cached-state  (load-cached-state state-file (:max-cache-age opts))
         current-state (get-current-state opts)]
     (when (:verbose opts)
       (println "Cached state:" cached-state)
       (println "Current state:" current-state))
-    (if (= current-state cached-state)
+    (cond
+      ;; An update replaces the host's whole record state, so sending one
+      ;; with no address would remove the host from DNS. With no address
+      ;; the network is most likely not up yet; the next run will see it.
+      (not (or (:ipv4 current-state) (:ipv6 current-state)))
+      (do (println "No address found yet, skipping update")
+          0)
+
+      (= current-state cached-state)
       (do (when (:verbose opts)
             (println "State unchanged, skipping update"))
           0)
+
+      :else
       (do (println "State changed, updating servers...")
           (let [[failures confirmed] (update-all-servers! opts current-state)]
             (if (zero? failures)
@@ -428,6 +446,9 @@
    :private {:desc "Report private IPs"
              :default false
              :coerce :boolean}
+   :max-cache-age {:desc "Re-send even an unchanged state once the cache is this many seconds old"
+                   :default 86400
+                   :coerce :int}
    :state-file {:desc "Path to state cache file"
                :default (str (or (System/getenv "CACHE_DIRECTORY") "/var/cache/nexus-client")
                              "/state.edn")}

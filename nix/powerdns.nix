@@ -1,213 +1,211 @@
 { config, lib, pkgs, ... }@toplevel:
 
+# PowerDNS primary for Nexus.
+#
+# Every record change Nexus makes goes through the PowerDNS HTTP API, which
+# refuses CNAME conflicts, rectifies the zone for DNSSEC, raises the SOA
+# serial (SOA-EDIT-API=INCREASE) and sends NOTIFY to the secondaries
+# (also-notify) as part of the change. That is why there is no serial
+# trigger, no change-detection timer and no notify job here any more: each
+# was making up for a step the old direct-SQL writes skipped.
+#
+# What is left:
+#   nexus-powerdns-api-key        generates the API key once, root-only
+#   nexus-powerdns-initialize-db  schema, static records from config, zone
+#                                 metadata, DNSSEC keys, rectify, serial bump
+#   nexus-powerdns                the server, with the API on 127.0.0.1
+#   nexus-powerdns-weekly-serial  a weekly serial bump, so secondaries pick
+#                                 up PowerDNS's weekly signature rollover
+
 with lib;
 let
   cfg = config.nexus.dns-server;
 
   db-cfg = config.nexus.database;
 
-  # Generate PowerDNS PostgreSQL backend configuration
-  # Takes a target path and database configuration, returns a shell script
-  # that generates the gpgsql module config with password substitution
-  genGpgsqlConfig = gpgsql-target:
-    { db-host, db-user, db-password-file, database, enable-dnssec, debug ? false
-    , ... }:
-    let
-      template = pkgs.writeText "pdns.gpgsql.conf.template" ''
-        launch+=gpgsql
-        gpgsql-host=${db-host}
-        gpgsql-dbname=${database}
-        gpgsql-user=${db-user}
-        gpgsql-password=__PASSWORD__
-        gpgsql-dnssec=${if enable-dnssec then "yes" else "no"}
-        ${optionalString debug ''
-          log-dns-details
-          log-dns-queries
-          log-timestamp
-          loglevel=6
-          query-logging
-        ''}
-      '';
-    in ''
-      mkdir -p $(dirname ${gpgsql-target})
-      PASSWD=$(cat ${db-password-file})
-      sed "s/__PASSWORD__/$PASSWD/" ${template} > ${gpgsql-target}
-    '';
+  zones = mapAttrsToList (_: opts: opts.domain-name) config.nexus.domains;
 
-  # Generate complete PowerDNS configuration
-  # Creates base config and includes the PostgreSQL backend module
-  genPdnsConfig =
-    { target-dir, listen-addresses, port, secondary-servers, ... }@config:
+  # Generate the PowerDNS configuration into target-dir. The password (and
+  # the API key, when given) are appended with printf rather than spliced in
+  # with sed, so characters like / and & in them survive.
+  genPdnsConfig = { target-dir, password-file, api-key-file ? null }:
     let
-      target = "${target-dir}/pdns.conf";
-      gpgsql-target = "${target-dir}/modules/gpgsql.conf";
-      baseCfg = let
-        secondary-server-str = concatStringsSep "," secondary-servers;
-        # Configure AXFR (zone transfer) permissions for secondary servers
-        secondary-clause = optionalString (secondary-servers != [ ]) ''
-          allow-axfr-ips=${secondary-server-str}
-          also-notify=${secondary-server-str}
-        '';
-      in pkgs.writeText "pdns.conf.template" (''
-        local-address=${concatStringsSep ", " listen-addresses}
-        local-port=${toString port}
+      secondary-server-str = concatStringsSep "," cfg.secondary-servers;
+      base = pkgs.writeText "pdns.conf" (''
+        local-address=${concatStringsSep ", " cfg.listen-addresses}
+        local-port=${toString cfg.port}
         primary=yes
-        launch=
-        # Produce date-based (YYYYMMDDSS) SOA serials. Without a SOA-EDIT policy
-        # `pdnsutil zone increase-serial` only bumps the serial by 1, so it never
-        # advances the date component. A serial stuck in the past looks stale to
-        # secondaries (e.g. Knot), which then refuse to transfer the zone.
-        # INCEPTION-INCREMENT rolls the date forward on each increment.
-        default-soa-edit=INCEPTION-INCREMENT
-        default-soa-edit-signed=INCEPTION-INCREMENT
-      '' + secondary-clause);
-      moduleDirectory = "${target-dir}/modules";
-      genGpgsqlConfScript =
-        genGpgsqlConfig "${moduleDirectory}/gpgsql.conf" config;
-    in pkgs.writeShellScript "gen-pdns-config.sh" ''
+        launch=gpgsql
+        gpgsql-host=${db-cfg.host}
+        gpgsql-port=${toString db-cfg.port}
+        gpgsql-dbname=${db-cfg.database}
+        gpgsql-user=${cfg.database.user}
+        gpgsql-dnssec=${if cfg.enable-dnssec then "yes" else "no"}
+      '' + optionalString (cfg.secondary-servers != [ ]) ''
+        allow-axfr-ips=${secondary-server-str}
+        also-notify=${secondary-server-str}
+      '' + optionalString (api-key-file != null) ''
+        webserver=yes
+        webserver-address=127.0.0.1
+        webserver-port=${toString cfg.api-port}
+        webserver-allow-from=127.0.0.1,::1
+        api=yes
+      '' + optionalString cfg.debug ''
+        log-dns-details=yes
+        log-dns-queries=yes
+        loglevel=6
+        query-logging=yes
+      '');
+    in ''
       mkdir -p ${target-dir}
-      touch ${target-dir}/pdns.conf
-      cat ${baseCfg} > ${target-dir}/pdns.conf
-      echo "include-dir=${moduleDirectory}" >> ${target-dir}/pdns.conf
-      ${genGpgsqlConfScript}
+      (
+        umask 077
+        cat ${base} > ${target-dir}/pdns.conf
+        printf 'gpgsql-password=%s\n' "$(cat ${password-file})" >> ${target-dir}/pdns.conf
+        ${optionalString (api-key-file != null) ''
+          printf 'api-key=%s\n' "$(cat ${api-key-file})" >> ${target-dir}/pdns.conf
+        ''}
+      )
     '';
 
-  # Legacy config generator (unused but kept for compatibility)
-  pdns-config = { listen-addrs, port, subconfig-dir, ... }:
-    pkgs.writeTextDir "pdns.conf" ''
-      local-address=${concatStringsSep ", " listen-addresses}
-      local-port=${toString port}
-      launch=
-      include-dir=${subconfig-dir}
-    '';
+  pdnsutil = dir: "${pkgs.pdns}/bin/pdnsutil --config-dir=${dir}";
 
-  # Helper to create DNS record objects
+  # SQL string literal.
+  sqlStr = s: "'${replaceStrings [ "'" ] [ "''" ] s}'";
+
   mkRecord = name: type: content: { inherit name type content; };
 
-  # Generate SQL to insert or update a DNS record
-  # Used during domain initialization to ensure records exist
-  insertOrUpdate = domain: record:
-    let
-      selectClause = concatStringsSep " " [
-        "SELECT * FROM domains, records WHERE"
-        "records.name='${record.name}'"
-        "AND"
-        "records.type='${record.type}'"
-        "AND"
-        "records.domain_id=domains.id"
-        "AND"
-        "domains.name='${domain}'"
-      ];
-      updateClause = concatStringsSep " " [
-        "UPDATE records SET"
-        "content='${record.content}'"
-        "WHERE"
-        "records.name='${record.name}'"
-        "AND"
-        "records.type='${record.type}'"
-        "AND"
-        "records.domain_id=(SELECT id FROM domains WHERE name='${domain}')"
-      ];
-      insertClause = concatStringsSep " " [
-        "INSERT INTO records (domain_id, name, type, content)"
-        "SELECT"
-        "domains.id,"
-        "'${record.name}',"
-        "'${record.type}',"
-        "'${record.content}'"
-        "FROM domains"
-        "WHERE"
-        "domains.name='${domain}'"
-      ];
-    in ''
-      IF EXISTS (${selectClause}) THEN
-        ${updateClause};
-      ELSE
-        ${insertClause};
+  # Refuse a CNAME beside any other data at the same name, whoever writes
+  # it: the API already refuses these, but the init SQL and anyone with
+  # psql do not go through the API. Knot secondaries reject a whole zone
+  # transfer over one such name, and keep serving a stale copy until the
+  # zone expires, so it is far cheaper to stop it at the write.
+  #
+  # Only name and type changes are checked (an UPDATE of content alone
+  # cannot create a conflict), and rows with a NULL type are skipped: those
+  # are the empty non-terminals PowerDNS's rectify writes.
+  cnameGuardSql = ''
+    CREATE OR REPLACE FUNCTION nexus_refuse_cname_conflict()
+    RETURNS TRIGGER AS $fn$
+    BEGIN
+      IF NEW.type IS NULL THEN
+        RETURN NEW;
       END IF;
+      IF NEW.type = 'CNAME' THEN
+        IF EXISTS (SELECT 1 FROM records
+                   WHERE domain_id = NEW.domain_id AND name = NEW.name
+                     AND type IS NOT NULL AND type <> 'CNAME'
+                     AND id IS DISTINCT FROM NEW.id) THEN
+          RAISE EXCEPTION 'CNAME % conflicts with other records at that name', NEW.name
+            USING ERRCODE = 'integrity_constraint_violation';
+        END IF;
+      ELSIF EXISTS (SELECT 1 FROM records
+                    WHERE domain_id = NEW.domain_id AND name = NEW.name
+                      AND type = 'CNAME'
+                      AND id IS DISTINCT FROM NEW.id) THEN
+        RAISE EXCEPTION '% record at % conflicts with the CNAME there', NEW.type, NEW.name
+          USING ERRCODE = 'integrity_constraint_violation';
+      END IF;
+      RETURN NEW;
+    END;
+    $fn$ LANGUAGE plpgsql;
+
+    CREATE OR REPLACE TRIGGER nexus_refuse_cname_conflict
+    BEFORE INSERT OR UPDATE OF name, type ON records
+    FOR EACH ROW EXECUTE FUNCTION nexus_refuse_cname_conflict();
+  '';
+
+  # The challenges table. Each challenge now keeps its own secret: the
+  # TXT rrset for a name is rebuilt from every active challenge on it, so
+  # record_id is no longer needed (or set).
+  challengeTableSql = ''
+    CREATE TABLE IF NOT EXISTS challenges (
+      domain_id    INTEGER NOT NULL,
+      challenge_id UUID NOT NULL,
+      hostname     VARCHAR(255) NOT NULL,
+      created_at   TIMESTAMP NOT NULL DEFAULT NOW(),
+      record_id    BIGINT,
+      secret       TEXT,
+      active       BOOLEAN NOT NULL DEFAULT TRUE,
+      PRIMARY KEY(domain_id, challenge_id)
+    );
+    ALTER TABLE challenges ADD COLUMN IF NOT EXISTS secret TEXT;
+    ALTER TABLE challenges ALTER COLUMN record_id DROP NOT NULL;
+  '';
+
+  # The trigger that counted changes in domains.notified_serial. PowerDNS
+  # owns that column (it records the serial it last sent NOTIFY for, and
+  # resets it about once a minute), so the count was never reliable.
+  dropSerialTriggerSql = ''
+    DROP TRIGGER IF EXISTS update_serial_on_change_trigger ON records;
+    DROP FUNCTION IF EXISTS update_zone_serial_on_change();
+  '';
+
+  # Make the rrset name/type hold exactly contents: rows with other content
+  # are removed, missing ones added, and existing ones left alone (so their
+  # ids, ordername and auth survive). Config owns any rrset it declares;
+  # rrsets it does not declare are never touched. A record that would sit
+  # beside a CNAME is skipped with a warning rather than failing the run.
+  reconcileRrset = domain: { name, type, contents }:
+    let
+      domainId = "(SELECT id FROM domains WHERE name=${sqlStr domain})";
+      contentList = concatMapStringsSep ", " sqlStr contents;
+    in ''
+      DELETE FROM records
+        WHERE domain_id=${domainId} AND name=${sqlStr name} AND type=${sqlStr type}
+          AND content NOT IN (${contentList});
+      ${concatMapStringsSep "\n" (content: ''
+        BEGIN
+          INSERT INTO records (domain_id, name, type, content, auth)
+            SELECT ${domainId}, ${sqlStr name}, ${sqlStr type}, ${sqlStr content}, TRUE
+            WHERE NOT EXISTS (SELECT 1 FROM records
+                              WHERE domain_id=${domainId} AND name=${sqlStr name}
+                                AND type=${sqlStr type} AND content=${sqlStr content});
+        EXCEPTION WHEN integrity_constraint_violation THEN
+          RAISE WARNING 'skipped % % %: %', ${sqlStr name}, ${sqlStr type}, ${sqlStr content}, SQLERRM;
+        END;
+      '') contents}
     '';
 
-  # Generate SQL to ensure a DNS record exists (insert only if not present)
-  # Used for NS records which can have multiple entries with same name/type
-  ensureExists = domain: record:
+  # Group records into rrsets by (name, type).
+  toRrsets = records:
     let
-      selectClause = concatStringsSep " " [
-        "SELECT * FROM domains, records WHERE"
-        "records.name='${record.name}'"
-        "AND"
-        "records.type='${record.type}'"
-        "AND"
-        "records.content='${record.content}'"
-        "AND"
-        "records.domain_id=domains.id"
-        "AND"
-        "domains.name='${domain}'"
-      ];
-      insertClause = concatStringsSep " " [
-        "INSERT INTO records (domain_id, name, type, content)"
-        "SELECT"
-        "domains.id,"
-        "'${record.name}',"
-        "'${record.type}',"
-        "'${record.content}'"
-        "FROM domains"
-        "WHERE"
-        "domains.name='${domain}'"
-      ];
-    in ''
-      IF NOT EXISTS (${selectClause}) THEN
-        ${insertClause}
-      END IF;
-    '';
+      key = r: "${r.name}\t${r.type}";
+      grouped = groupBy key records;
+    in mapAttrsToList (_: rs: {
+      inherit (head rs) name type;
+      contents = unique (map (r: r.content) rs);
+    }) grouped;
 
-  # Create the challenges table for ACME DNS-01 validation
-  # Stores temporary TXT records for Let's Encrypt certificate validation
-  ensureChallengeTable = concatStringsSep " " [
-    "CREATE TABLE IF NOT EXISTS challenges"
-    "("
-    "domain_id INTEGER NOT NULL,"
-    "challenge_id UUID NOT NULL,"
-    "hostname VARCHAR(255) NOT NULL,"
-    "created_at TIMESTAMP NOT NULL DEFAULT NOW(),"
-    "record_id BIGINT NOT NULL,"
-    "active BOOLEAN NOT NULL DEFAULT TRUE,"
-    "PRIMARY KEY(domain_id, challenge_id)"
-    ");"
-  ];
-
-  # Read the SQL trigger that auto-increments SOA serial on record changes
-  createUpdateSerialTrigger =
-    builtins.readFile ../sql/update-serial-trigger.sql;
-
-  # Helper to concat mapped attributes into a list
-  mapConcatAttrsToList = f: as: concatLists (mapAttrsToList f as);
-
-  # Generate SQL to initialize a domain with all its records
-  # Creates domain entry, SOA, NS, A/AAAA for nameservers, SPF, DMARC, aliases, etc.
+  # SQL to initialize a domain: the domain row, its SOA, and the static
+  # records from config. Runs in one transaction with ON_ERROR_STOP, so a
+  # mistake fails the unit visibly instead of half-applying -- the previous
+  # version of this script nested `$$` quoting inside `DO $$` and had been
+  # failing silently (psql exits 0 without ON_ERROR_STOP) ever since.
   initializeDomainSql = domain:
     let
       inherit (domain) domain-name;
-      ipv6-net = net: (builtins.match ":" net) != null;
+      ipv6-net = net: (builtins.match ".*:.*" net) != null;
       ipv4-net = net: !(ipv6-net net);
 
-      # Create A/AAAA records for nameserver hosts
-      # NOTE: NS records are created separately via ensureExists to handle duplicates
-      ns-records = concatMap (nsOpts:
+      primaryNameserver = head (attrValues domain.nameservers);
+      serial = toString config.instance.build-timestamp;
+      soaPrefix = "${primaryNameserver.name}.${domain-name} hostmaster.${domain-name}";
+      soaSuffix = "${toString domain.refresh} ${toString domain.retry} ${toString domain.expire} ${toString domain.minimum}";
+      domainId = "(SELECT id FROM domains WHERE name=${sqlStr domain-name})";
+
+      ns-host-records = concatMap (nsOpts:
         (optional (nsOpts.ipv4-address != null)
           (mkRecord "${nsOpts.name}.${domain-name}" "A" nsOpts.ipv4-address))
         ++ (optional (nsOpts.ipv6-address != null)
           (mkRecord "${nsOpts.name}.${domain-name}" "AAAA"
             nsOpts.ipv6-address))) (attrValues domain.nameservers);
 
-      primaryNameserver = head (attrValues domain.nameservers);
+      ns-records = map (nsOpts:
+        mkRecord domain-name "NS" "${nsOpts.name}.${domain-name}")
+        (attrValues domain.nameservers);
 
-      # Build all domain records: SOA, DMARC, SPF, Kerberos, CNAMEs, custom records
-      domain-records = [
-        # SOA record with primary nameserver and admin contact
-        (mkRecord domain-name "SOA"
-          "${primaryNameserver.name}.${domain-name} hostmaster.${domain-name} ${
-            toString config.instance.build-timestamp
-          } 10800 3600 1209600 3600")
+      static-records = [
         # DMARC policy for email authentication
         (mkRecord "_dmark.${domain-name}" "TXT" ''
           "v=DMARC1; p=reject; rua=mailto:${domain.admin}; ruf=mailto:${domain.admin}; fo=1;"'')
@@ -219,40 +217,87 @@ let
           networks-string = concatStringsSep " " (v4-nets ++ v6-nets);
         in ''"v=spf1 mx ${networks-string} -all"''))
       ] ++ (optional (domain.gssapi-realm != null)
-      # Kerberos realm TXT record if configured
         (mkRecord "_kerberos.${domain-name}" "TXT" "${domain.gssapi-realm}"))
         ++ (mapAttrsToList
-          # CNAME aliases for the domain
           (alias: target: mkRecord "${alias}.${domain-name}" "CNAME" target)
-          domain.aliases) ++ domain.records ++ ns-records;
+          domain.aliases) ++ domain.records ++ ns-host-records ++ ns-records;
 
-      # Generate insert/update clauses for all records
-      records-clauses = map (insertOrUpdate domain-name) domain-records;
-
-      # Generate insert clauses for NS records (one per nameserver)
-      ns-clauses = map (ensureExists domain-name)
-        (map (nsOpts: mkRecord domain-name "NS" "${nsOpts.name}.${domain-name}")
-          (attrValues domain.nameservers));
     in ''
-      DO $$
+      INSERT INTO domains (name, type)
+        SELECT ${sqlStr domain-name}, 'MASTER'
+        WHERE NOT EXISTS (SELECT 1 FROM domains WHERE name=${sqlStr domain-name});
+
+      -- The SOA serial only ever goes up. PowerDNS raises it on every API
+      -- change, so writing the build's serial unconditionally (as this used
+      -- to) would move it backwards after any change since the last build,
+      -- and secondaries ignore a serial lower than the one they hold.
+      INSERT INTO records (domain_id, name, type, content, auth)
+        SELECT ${domainId}, ${sqlStr domain-name}, 'SOA',
+               ${sqlStr "${soaPrefix} ${serial} ${soaSuffix}"}, TRUE
+        WHERE NOT EXISTS (SELECT 1 FROM records
+                          WHERE domain_id=${domainId} AND type='SOA');
+      UPDATE records
+        SET content = ${sqlStr soaPrefix} || ' '
+                      || GREATEST(split_part(content, ' ', 3)::bigint, ${serial})
+                      || ' ' || ${sqlStr soaSuffix}
+        WHERE domain_id=${domainId} AND type='SOA';
+
+      DO $do$
       BEGIN
-      ${ensureChallengeTable}
-      ${createUpdateSerialTrigger}
-      -- Insert domain if it doesn't exist
-      INSERT INTO domains (name, master, type, notified_serial) SELECT '${domain-name}', '${primaryNameserver.ipv4-address}', 'MASTER', '${
-        toString config.instance.build-timestamp
-      }' WHERE NOT EXISTS (SELECT * FROM domains WHERE name='${domain-name}');
-      ${concatStringsSep "\n" records-clauses}
-      ${concatStringsSep "\n" ns-clauses}
+      ${concatMapStringsSep "\n" (reconcileRrset domain-name) (toRrsets static-records)}
       END;
-      $$
+      $do$;
     '';
+
+  initSqlFile = pkgs.writeText "nexus-powerdns-init.sql" ''
+    ${dropSerialTriggerSql}
+    ${cnameGuardSql}
+    ${challengeTableSql}
+    ${concatMapStringsSep "\n" initializeDomainSql (attrValues config.nexus.domains)}
+  '';
+
+  # Per-zone maintenance after the SQL: make API changes raise the serial,
+  # sign the zone (once), rectify, and bump the serial so secondaries pick
+  # up whatever the SQL changed.
+  zoneMaintenance = dir: zone: ''
+    if ! ${pdnsutil dir} zone list-keys ${zone} >/dev/null 2>&1; then
+      echo "ERROR: zone ${zone} is not in the PowerDNS database" >&2
+      exit 1
+    fi
+
+    ${pdnsutil dir} metadata set ${zone} SOA-EDIT-API INCREASE
+    ${pdnsutil dir} metadata set ${zone} SOA-EDIT
+
+    ${optionalString cfg.enable-dnssec ''
+      MARKER="$STATE_DIRECTORY/${zone}.signed"
+      KEYS="$(${pdnsutil dir} zone list-keys ${zone})"
+      # A key row starts with the zone name; the header row does not.
+      if grep -qE '^${replaceStrings ["."] ["\\."] zone}[[:space:]].*[[:space:]]Act[[:space:]]' <<< "$KEYS"; then
+        touch "$MARKER"
+      elif [[ -e "$MARKER" ]] && [[ "${boolToString cfg.allow-new-dnssec-keys}" != "true" ]]; then
+        echo "ERROR: zone ${zone} was signed before but has no DNSSEC keys now." >&2
+        echo "New keys would not match the DS record at the parent, and every" >&2
+        echo "validating resolver would reject the zone. Restore the cryptokeys" >&2
+        echo "table, or set nexus.dns-server.allow-new-dnssec-keys to re-key" >&2
+        echo "deliberately and then update the DS at the registrar." >&2
+        exit 1
+      else
+        echo "Signing zone ${zone} with new DNSSEC keys"
+        ${pdnsutil dir} zone secure ${zone}
+        touch "$MARKER"
+      fi
+    ''}
+
+    ${pdnsutil dir} zone rectify ${zone}
+    ${pdnsutil dir} zone increase-serial ${zone}
+  '';
+
+  apiKeyDir = dirOf cfg.api-key-file;
 
 in {
   imports = [ ./options.nix ];
 
   config = mkIf cfg.enable {
-    # Open firewall ports for DNS (both TCP and UDP on port 53 by default)
     networking.firewall = {
       allowedTCPPorts = [ cfg.port ];
       allowedUDPPorts = [ cfg.port ];
@@ -260,424 +305,151 @@ in {
 
     systemd = {
       services = {
-        # ============================================================================
-        # Database Initialization Service
-        # ============================================================================
-        # Runs before PowerDNS starts to ensure the database schema and domains exist
+        # Generate the API key the first time; it then persists. Root-only:
+        # PowerDNS and the Nexus server get it through LoadCredential.
+        nexus-powerdns-api-key = {
+          description = "Generate the PowerDNS API key for Nexus";
+          serviceConfig = {
+            Type = "oneshot";
+            RemainAfterExit = true;
+          };
+          script = ''
+            if [ ! -s ${cfg.api-key-file} ]; then
+              mkdir -p ${apiKeyDir}
+              chmod 700 ${apiKeyDir}
+              umask 077
+              ${pkgs.openssl}/bin/openssl rand -hex 32 > ${cfg.api-key-file}
+            fi
+          '';
+        };
+
         nexus-powerdns-initialize-db = let
           pgpassFile = "$RUNTIME_DIRECTORY/.pgpass";
-          mkPgpassFile = pkgs.writeShellScript "generate-pgpass-file.sh" ''
-            touch ${pgpassFile}
-            chmod 600 ${pgpassFile}
-            PASSWORD=$(cat $CREDENTIALS_DIRECTORY/db.passwd)
-            echo "${db-cfg.host}:${
-              toString db-cfg.port
-            }:${db-cfg.database}:${cfg.database.user}:__PASSWORD__" | sed "s/__PASSWORD__/$PASSWORD/" > ${pgpassFile}
-          '';
+          confDir = "$RUNTIME_DIRECTORY/pdns";
         in {
           description =
-            "Initialize the PowerDNS PostgreSQL database schema and domains";
-          requiredBy = [ "nexus-powerdns.service" ];
+            "Initialize the PowerDNS database, static records and zone settings";
           before = [ "nexus-powerdns.service" ];
           after = [ "network-online.target" ];
-          requires = [ "network-online.target" ];
-          path = with pkgs; [ postgresql util-linux ];
+          wants = [ "network-online.target" ];
+          path = with pkgs; [ postgresql netcat gnugrep ];
           environment = {
             PGHOST = db-cfg.host;
-            PGDATABASE = db-cfg.database;
             PGPORT = toString db-cfg.port;
+            PGDATABASE = db-cfg.database;
             PGUSER = cfg.database.user;
-            ## Only running on localhost for now
-            # PGSSLMODE = "require";
           };
           serviceConfig = {
-            # Wait for PostgreSQL to be available before proceeding
-            ExecStartPre = let
-              ncCmd = "${pkgs.netcat}/bin/nc -z ${db-cfg.host} ${
-                  toString db-cfg.port
-                }";
-              pgWaitCmd =
-                "${pkgs.bash}/bin/bash -c 'until ${ncCmd}; do sleep 1; done;'";
-            in pkgs.writeShellScript "powerdns-initialize-db-prep.sh" ''
-              ${pgWaitCmd}
-            '';
-            # Initialize PowerDNS schema and all configured domains
-            ExecStart = let
-              initDomainSqlFile = domainOpts:
-                pkgs.writeText "init-${domainOpts.domain-name}.sql"
-                (initializeDomainSql domainOpts);
-              domainInitScript = _: domainOpts: ''
-                psql -U ${cfg.database.user} --dbname=${db-cfg.database} -f ${
-                  initDomainSqlFile domainOpts
-                }
-              '';
-              domainInitScripts = concatStringsSep "\n"
-                (mapAttrsToList domainInitScript config.nexus.domains);
-            in pkgs.writeShellScript "powerdns-initialize-db.sh" ''
-              ${mkPgpassFile}
-              export HOME=$RUNTIME_DIRECTORY
-              export PGPASSFILE=${pgpassFile}
-
-              # Check if PowerDNS schema already exists
-              if [ "$( psql --dbname=${db-cfg.database} -U ${cfg.database.user} -tAc "SELECT to_regclass('public.domains')" )" ]; then
-                echo "PowerDNS database schema already initialized, skipping"
-              else
-                echo "Initializing PowerDNS database schema"
-                psql --dbname=${db-cfg.database} -U ${cfg.database.user} -f ${pkgs.pdns}/share/doc/pdns/schema.pgsql.sql
-              fi
-
-              # Initialize all configured domains
-              ${domainInitScripts}
-            '';
+            Type = "oneshot";
+            RemainAfterExit = true;
             RuntimeDirectory = "nexus-powerdns-initialize-db";
+            StateDirectory = "nexus-powerdns-initialize-db";
             LoadCredential = "db.passwd:${cfg.database.password-file}";
             DynamicUser = true;
           };
           unitConfig.ConditionPathExists = [ cfg.database.password-file ];
+          script = ''
+            set -euo pipefail
+
+            until nc -z ${db-cfg.host} ${toString db-cfg.port}; do sleep 1; done
+
+            (
+              umask 077
+              printf '%s:%s:%s:%s:%s\n' ${db-cfg.host} ${toString db-cfg.port} \
+                ${db-cfg.database} ${cfg.database.user} \
+                "$(cat $CREDENTIALS_DIRECTORY/db.passwd)" > ${pgpassFile}
+            )
+            export HOME=$RUNTIME_DIRECTORY
+            export PGPASSFILE=${pgpassFile}
+
+            if [ -z "$(psql -tAc "SELECT to_regclass('public.domains')")" ]; then
+              echo "Initializing PowerDNS database schema"
+              psql -v ON_ERROR_STOP=1 -1 -f ${pkgs.pdns}/share/doc/pdns/schema.pgsql.sql
+            fi
+
+            psql -v ON_ERROR_STOP=1 -1 -f ${initSqlFile}
+
+            ${genPdnsConfig {
+              target-dir = confDir;
+              password-file = "$CREDENTIALS_DIRECTORY/db.passwd";
+            }}
+            ${concatMapStringsSep "\n" (zoneMaintenance confDir) zones}
+          '';
         };
 
-        # ============================================================================
-        # Main PowerDNS Service
-        # ============================================================================
-        # Runs the PowerDNS authoritative nameserver
         nexus-powerdns = {
           description = "Nexus PowerDNS authoritative nameserver";
-          after =
-            [ "network-online.target" "nexus-powerdns-initialize-db.service" ];
+          # wants, not requires: a failed initialization is visible in
+          # `systemctl --failed`, but it does not take DNS down with it.
+          wants = [ "network-online.target" "nexus-powerdns-initialize-db.service" ];
+          requires = [ "nexus-powerdns-api-key.service" ];
+          after = [
+            "network-online.target"
+            "nexus-powerdns-initialize-db.service"
+            "nexus-powerdns-api-key.service"
+          ];
           wantedBy = [ "multi-user.target" ];
-          requires =
-            [ "network-online.target" "nexus-powerdns-initialize-db.service" ];
-          path = with pkgs; [ pdns postgresql util-linux ];
-          serviceConfig = let module-directory = "$RUNTIME_DIRECTORY/modules";
-          in {
-            # Wait for database to be available
-            ExecStartPre = let
-              ncCmd = "${pkgs.netcat}/bin/nc -z ${db-cfg.host} ${
-                  toString db-cfg.port
-                }";
-            in pkgs.writeShellScript "powerdns-wait-for-db.sh"
-            "${pkgs.bash}/bin/bash -c 'until ${ncCmd}; do sleep 1; done;'";
-
-            ExecStart = let
-              genConfig = genPdnsConfig {
-                target-dir = "$RUNTIME_DIRECTORY";
-                inherit (cfg)
-                  port listen-addresses secondary-servers debug enable-dnssec;
-                inherit (config.nexus.database) database;
-                db-host = config.nexus.database.host;
-                db-user = cfg.database.user;
-                db-password-file = "$CREDENTIALS_DIRECTORY/db.passwd";
-              };
-
-              # Secure zones with DNSSEC if enabled
-              secureZones = let
-                signDomain = domain: ''
-                  DNSINFO=$(${pkgs.pdns}/bin/pdnsutil --config-dir=$RUNTIME_DIRECTORY show-zone ${domain})
-                  if [[ "$DNSINFO" =~ "No such zone in the database" ]]; then
-                    echo "WARNING: Zone ${domain} does not exist in PowerDNS database"
-                    logger "WARNING: Zone ${domain} does not exist in PowerDNS database"
-                  elif [[ "$DNSINFO" =~ "Zone is not actively secured" ]]; then
-                    echo "Securing zone ${domain} with DNSSEC"
-                    logger "Securing zone ${domain} with DNSSEC"
-                    ${pkgs.pdns}/bin/pdnsutil --config-dir=$RUNTIME_DIRECTORY secure-zone ${domain}
-                  elif [[ "$DNSINFO" =~ "No keys for zone" ]]; then
-                    echo "Generating DNSSEC keys for zone ${domain}"
-                    logger "Generating DNSSEC keys for zone ${domain}"
-                    ${pkgs.pdns}/bin/pdnsutil --config-dir=$RUNTIME_DIRECTORY secure-zone ${domain}
-                  fi
-                  # Rectify zone to ensure DNSSEC signatures are current
-                  ${pkgs.pdns}/bin/pdnsutil --config-dir=$RUNTIME_DIRECTORY rectify-zone ${domain}
-                '';
-              in pkgs.writeShellScript "nexus-powerdns-secure-zones.sh" ''
-                export HOME=$RUNTIME_DIRECTORY
-                ${concatStringsSep "\n"
-                (map signDomain (attrNames config.nexus.domains))}
-              '';
-
-              # PowerDNS launch command
-              launchCmd = concatStringsSep " " ([
-                "${pkgs.pdns}/bin/pdns_server"
-                "--daemon=no"
-                "--guardian=yes"
-                ''--config-dir="$RUNTIME_DIRECTORY"''
-              ] ++ (optionals cfg.debug [
-                "--log-dns-queries=yes"
-                "--loglevel=7"
-              ]));
-            in pkgs.writeShellScript "nexus-powerdns-start.sh" ''
-              ${genConfig}
-              ${secureZones}
-              ${launchCmd}
-            '';
+          path = with pkgs; [ pdns netcat ];
+          serviceConfig = {
             RuntimeDirectory = "nexus-powerdns";
-            LoadCredential = "db.passwd:${cfg.database.password-file}";
+            LoadCredential = [
+              "db.passwd:${cfg.database.password-file}"
+              "api.key:${cfg.api-key-file}"
+            ];
             TimeoutStartSec = "180";
+            Restart = "on-failure";
           };
           unitConfig.ConditionPathExists = [ cfg.database.password-file ];
-        };
-
-        # ============================================================================
-        # Serial Increment Service (Manual/Timer Triggered)
-        # ============================================================================
-        # Checks whether zone records have changed (via the notified_serial DB trigger),
-        # increments the SOA serial for changed zones, and notifies secondaries.
-        # Combines what were previously separate increment-serial and notify jobs so
-        # that notify always runs immediately after the increment with no gap.
-        nexus-powerdns-increment-serial = {
-          description = "Detect PowerDNS zone changes, increment serials, and notify secondaries";
-          requires = [ "nexus-powerdns.service" ];
-          after = [ "nexus-powerdns.service" ];
-          path = with pkgs; [ pdns postgresql ];
-          serviceConfig = let
-            genConfig = genPdnsConfig {
+          script = ''
+            until nc -z ${db-cfg.host} ${toString db-cfg.port}; do sleep 1; done
+            ${genPdnsConfig {
               target-dir = "$RUNTIME_DIRECTORY";
-              inherit (cfg)
-                port listen-addresses secondary-servers debug enable-dnssec;
-              inherit (config.nexus.database) database;
-              db-host = config.nexus.database.host;
-              db-user = cfg.database.user;
-              db-password-file = "$CREDENTIALS_DIRECTORY/db.passwd";
-            };
-            zones = mapAttrsToList (_: opts: opts.domain-name) config.nexus.domains;
-            # For each zone: compare notified_serial (bumped by DB trigger on record changes)
-            # against our state file. Only increment SOA serial when changes are detected.
-            zoneCheckScript = zone: ''
-              NOTIFIED=$(psql -h ${db-cfg.host} -U ${cfg.database.user} -d ${db-cfg.database} -t -c \
-                "SELECT notified_serial FROM domains WHERE name='${zone}'" | tr -d '[:space:]')
-              STATE_FILE="$STATE_DIRECTORY/${zone}_notified_serial"
-              if [[ ! -f "$STATE_FILE" ]]; then
-                echo "First run for ${zone}: notified_serial=$NOTIFIED, incrementing serial as baseline"
-                echo "$NOTIFIED" > "$STATE_FILE"
-                pdnsutil --config-dir=$RUNTIME_DIRECTORY zone increase-serial ${zone}
-                NEEDS_NOTIFY=1
-              else
-                STORED=$(cat "$STATE_FILE")
-                if [[ "$STORED" != "$NOTIFIED" ]]; then
-                  echo "Zone ${zone}: changes detected (notified_serial $STORED -> $NOTIFIED)"
-                  echo "$NOTIFIED" > "$STATE_FILE"
-                  pdnsutil --config-dir=$RUNTIME_DIRECTORY zone increase-serial ${zone}
-                  NEEDS_NOTIFY=1
-                else
-                  echo "Zone ${zone}: no changes detected"
-                fi
-              fi
-            '';
-            notifyCmds = concatStringsSep "\n" (concatLists (map (zone:
-              map (ip: ''
-                echo "Notifying ${ip} of updates to ${zone}"
-                pdns_notify ${ip} ${zone}
-              '') cfg.secondary-servers) zones));
-          in {
-            ExecStart =
-              pkgs.writeShellScript "nexus-powerdns-increment-serial.sh" ''
-                ${genConfig}
-                export PGPASSWORD=$(cat $CREDENTIALS_DIRECTORY/db.passwd)
-                NEEDS_NOTIFY=0
-
-                ${concatStringsSep "\n" (map zoneCheckScript zones)}
-
-                if [[ $NEEDS_NOTIFY -eq 1 ]]; then
-                  ${notifyCmds}
-                fi
-
-                unset PGPASSWORD
-              '';
-            RuntimeDirectory = "nexus-powerdns-increment-serial";
-            StateDirectory = "nexus-powerdns-increment-serial";
-            LoadCredential = "db.passwd:${cfg.database.password-file}";
-            Type = "oneshot";
-          };
+              password-file = "$CREDENTIALS_DIRECTORY/db.passwd";
+              api-key-file = "$CREDENTIALS_DIRECTORY/api.key";
+            }}
+            exec ${pkgs.pdns}/bin/pdns_server --daemon=no --guardian=no \
+              --config-dir="$RUNTIME_DIRECTORY" ${
+                optionalString cfg.debug "--log-dns-queries=yes --loglevel=7"
+              }
+          '';
         };
 
-        # ============================================================================
-        # Secondary DNS Notification Service
-        # ============================================================================
-        # Sends NOTIFY messages to secondary DNS servers
-        # Triggered by the check-updates service when changes are detected
-        nexus-powerdns-notify = {
-          description = "Notify secondary DNS servers of zone updates";
-          path = with pkgs; [ pdns ];
+        # PowerDNS signs on the fly and rolls signatures weekly, but
+        # secondaries keep the signatures they last transferred, which
+        # expire a few weeks later. A zone that goes quiet for that long
+        # would be served with expired signatures. A weekly serial bump
+        # makes the secondaries transfer fresh ones.
+        nexus-powerdns-weekly-serial = let confDir = "$RUNTIME_DIRECTORY";
+        in {
+          description = "Weekly PowerDNS serial bump for DNSSEC re-signing";
           requires = [ "nexus-powerdns.service" ];
           after = [ "nexus-powerdns.service" ];
           serviceConfig = {
-            ExecStart = let
-              notifyCmds = let
-                zones = mapAttrsToList (_: opts: opts.domain-name)
-                  config.nexus.domains;
-              in concatLists (map (zone:
-                map (ip: ''
-                  echo "Notifying ${ip} of updates to ${zone}"
-                  pdns_notify ${ip} ${zone}
-                '') cfg.secondary-servers) zones);
-            in pkgs.writeShellScript "notify-secondary-dns.sh"
-            (concatStringsSep "\n" notifyCmds);
             Type = "oneshot";
-          };
-        };
-
-        # ============================================================================
-        # Zone Change Detection and Automatic Notification
-        # ============================================================================
-        # Monitors zone serial numbers and triggers notifications when changes are detected
-        # This is the key service for automatic secondary DNS updates
-        nexus-powerdns-check-updates = {
-          description = "Detect PowerDNS zone changes and notify secondaries";
-          after = [ "nexus-powerdns.service" ];
-          requires = [ "nexus-powerdns.service" ];
-          path = with pkgs; [ gawk gnugrep pdns ];
-          serviceConfig = let
-            genConfig = genPdnsConfig {
-              target-dir = "$RUNTIME_DIRECTORY";
-              inherit (cfg)
-                port listen-addresses secondary-servers debug enable-dnssec;
-              inherit (config.nexus.database) database;
-              db-host = config.nexus.database.host;
-              db-user = cfg.database.user;
-              db-password-file = "$CREDENTIALS_DIRECTORY/db.passwd";
-            };
-
-            # Script to check if a zone's serial has changed and notify secondaries
-            zoneCheckScript = secondaryIps: zone:
-              let
-                notifyCmds = concatStringsSep "\n" (map (secondaryIp: ''
-                  echo "Notifying secondary ${secondaryIp} of changes to ${zone}"
-                  pdns_notify ${secondaryIp} ${zone}
-                '') secondaryIps);
-              in pkgs.writeShellScript
-              "nexus-powerdns-check-updates-${zone}.sh" ''
-                UPDATE=0
-                NEW=$CACHE_DIRECTORY/${zone}_new_serial.txt
-                OLD=$CACHE_DIRECTORY/${zone}_old_serial.txt
-
-                # Extract current SOA serial from zone
-                pdnsutil --config-dir=$RUNTIME_DIRECTORY list-zone ${zone} | grep 'SOA' | awk '{print $7}' > $NEW
-
-                # Check if this is first run or if serial changed
-                if [[ ! -f "$OLD" ]]; then
-                   echo "First run for ${zone}, saving initial serial"
-                   mv $NEW $OLD
-                   UPDATE=1
-                else
-                   NEW_SERIAL=$(cat $NEW)
-                   OLD_SERIAL=$(cat $OLD)
-                   if [ "$NEW_SERIAL" = "$OLD_SERIAL" ]; then
-                      echo "Zone ${zone}: Serial unchanged ($NEW_SERIAL)"
-                   else
-                      echo "Zone ${zone}: Serial changed from $OLD_SERIAL to $NEW_SERIAL"
-                      mv $NEW $OLD
-                      UPDATE=1
-                   fi
-                fi
-
-                # If zone was updated, rectify and notify secondaries
-                if [[ $UPDATE -eq 1 ]]; then
-                   echo "Rectifying zone ${zone} and notifying secondaries"
-                   pdnsutil --config-dir=$RUNTIME_DIRECTORY rectify-zone ${zone}
-                   ${notifyCmds}
-                fi
-              '';
-          in {
-            ExecStart =
-              pkgs.writeShellScript "nexus-powerdns-check-updates.sh" ''
-                ${genConfig}
-                ${concatStringsSep "\n"
-                (map (zone: "${zoneCheckScript cfg.secondary-servers zone}")
-                  (mapAttrsToList (_: opts: opts.domain-name)
-                    config.nexus.domains))}
-              '';
-
-            RuntimeDirectory = "nexus-powerdns-check-updates";
-            CacheDirectory = "nexus-powerdns-check-updates";
+            DynamicUser = true;
+            RuntimeDirectory = "nexus-powerdns-weekly-serial";
             LoadCredential = "db.passwd:${cfg.database.password-file}";
-            Type = "oneshot";
           };
-        };
-
-        # ============================================================================
-        # ACME Challenge Cleanup Service
-        # ============================================================================
-        # Periodically removes old ACME DNS-01 challenge records
-        nexus-clear-challenges = {
-          description = "Clean up old ACME DNS-01 challenge records";
-          requires = [ "nexus-powerdns.service" ];
-          after = [ "nexus-powerdns.service" ];
-          path = with pkgs; [ postgresql ];
-          serviceConfig = let
-            cleanupScript =
-              pkgs.writeText "nexus-powerdns-clear-challenges.sql" ''
-                BEGIN;
-                -- Delete DNS records for challenges older than 1 day
-                DELETE FROM records WHERE id IN (
-                  SELECT record_id FROM challenges 
-                  WHERE created_at < (CURRENT_DATE - INTERVAL '1 day')
-                );
-                -- Mark challenges as inactive if their record was deleted
-                UPDATE challenges SET active=false 
-                WHERE NOT EXISTS (
-                  SELECT id FROM records WHERE id=challenges.record_id
-                );
-                COMMIT;
-              '';
-          in {
-            ExecStart =
-              pkgs.writeShellScript "nexus-powerdns-clear-challenges.sh" ''
-                export PGPASSWORD=$(cat $CREDENTIALS_DIRECTORY/db.passwd)
-                echo "Cleaning up ACME challenges older than 1 day"
-                psql -h ${db-cfg.host} -U ${cfg.database.user} -d ${db-cfg.database} -f ${cleanupScript}
-                unset PGPASSWORD
-              '';
-            RuntimeDirectory = "nexus-clear-challenges";
-            LoadCredential = "db.passwd:${cfg.database.password-file}";
-            Type = "oneshot";
-          };
+          script = ''
+            set -euo pipefail
+            export HOME=$RUNTIME_DIRECTORY
+            ${genPdnsConfig {
+              target-dir = confDir;
+              password-file = "$CREDENTIALS_DIRECTORY/db.passwd";
+            }}
+            ${concatMapStringsSep "\n"
+            (zone: "${pdnsutil confDir} zone increase-serial ${zone}") zones}
+          '';
         };
       };
 
-      # ============================================================================
-      # Systemd Timers
-      # ============================================================================
-      timers = {
-        # Hourly change-detection, serial increment, and notify.
-        # Uses OnCalendar so it reschedules correctly for oneshot services.
-        # Notify is handled inline by the service itself (not a separate timer).
-        nexus-powerdns-increment-serial = {
-          description = "Timer for PowerDNS zone change detection and serial increment";
-          wantedBy = [ "timers.target" ];
-          requires = [ "nexus-powerdns.service" ];
-          after = [ "nexus-powerdns.service" ];
-          timerConfig = {
-            OnCalendar = "hourly";
-            Persistent = true;
-            Unit = "nexus-powerdns-increment-serial.service";
-          };
-        };
-
-        # Clean up old ACME challenges daily
-        nexus-clear-challenges = {
-          description = "Timer for ACME challenge cleanup";
-          wantedBy = [ "timers.target" ];
-          requires = [ "nexus-powerdns.service" ];
-          after = [ "nexus-powerdns.service" ];
-          timerConfig = {
-            OnCalendar = "daily";
-            Persistent = true;
-            Unit = "nexus-clear-challenges.service";
-          };
-        };
-
-        # Runs every 5 minutes to detect changes and notify secondaries.
-        # Uses OnCalendar so it reschedules correctly for oneshot services.
-        nexus-powerdns-check-updates = {
-          description =
-            "Timer for automatic zone change detection and notification";
-          wantedBy = [ "timers.target" ];
-          requires = [ "nexus-powerdns.service" ];
-          after = [ "nexus-powerdns.service" ];
-          timerConfig = {
-            OnCalendar = "*:0/5";
-            Persistent = true;
-            Unit = "nexus-powerdns-check-updates.service";
-          };
+      timers.nexus-powerdns-weekly-serial = {
+        description = "Weekly PowerDNS serial bump for DNSSEC re-signing";
+        wantedBy = [ "timers.target" ];
+        timerConfig = {
+          OnCalendar = "weekly";
+          Persistent = true;
+          RandomizedDelaySec = "1h";
         };
       };
     };

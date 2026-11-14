@@ -7,6 +7,7 @@ let
   inherit (packages."${pkgs.system}") nexus-server;
   cfg = config.nexus.server;
   db-cfg = config.nexus.database;
+  dns-cfg = config.nexus.dns-server;
 
   host-alias-map = pkgs.writeText "nexus-host-alias-map.json"
     (builtins.toJSON cfg.client-alias-map);
@@ -42,6 +43,13 @@ in {
     # fails to start on the target host.
     assertions = [
       {
+        assertion = dns-cfg.enable;
+        message = ''
+          nexus.server: makes every record change through the PowerDNS API on
+          127.0.0.1, so nexus.dns-server must be enabled on the same host.
+        '';
+      }
+      {
         assertion = cfg.client-keys-file != null || cfg.host-public-keys != { };
         message = ''
           nexus.server: set client-keys-file (legacy HMAC, /api/v2) or
@@ -73,6 +81,9 @@ in {
     systemd.services.nexus-server = {
       path = [ nexus-server ];
       wantedBy = [ "network-online.target" ];
+      requires = [ "nexus-powerdns-api-key.service" ];
+      wants = [ "nexus-powerdns.service" ];
+      after = [ "nexus-powerdns-api-key.service" "nexus-powerdns.service" ];
       serviceConfig = {
         ExecStart = pkgs.writeShellScript "nexus-server-start.sh"
           (concatStringsSep " " ([
@@ -85,6 +96,8 @@ in {
             "--database-port=${toString db-cfg.port}"
             "--listen-host=127.0.0.1"
             "--listen-port=${toString cfg.internal-port}"
+            "--pdns-api-url=http://127.0.0.1:${toString dns-cfg.api-port}"
+            "--pdns-api-key-file=$CREDENTIALS_DIRECTORY/pdns-api.key"
           ] ++ (optional (cfg.client-keys-file != null)
             "--host-keys=$CREDENTIALS_DIRECTORY/host-keys.json")
           ++ (optional (cfg.challenge-keys-file != null)
@@ -111,7 +124,10 @@ in {
             "${pkgs.bash}/bin/bash -c 'until ${ncCmd}; do sleep 1; done;'")
         ];
 
-        LoadCredential = [ "db.passwd:${cfg.database.password-file}" ]
+        LoadCredential = [
+          "db.passwd:${cfg.database.password-file}"
+          "pdns-api.key:${dns-cfg.api-key-file}"
+        ]
           ++ (optional (cfg.client-keys-file != null)
             "host-keys.json:${cfg.client-keys-file}")
           ++ (optional (cfg.challenge-keys-file != null)

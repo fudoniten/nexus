@@ -31,7 +31,6 @@
   "Initialize test database schema from SQL files."
   [db-spec]
   (let [schema-sql (slurp "sql/powerdns-schema.sql")
-        trigger-sql (slurp "sql/update-serial-trigger.sql")
         challenges-sql "CREATE TABLE IF NOT EXISTS challenges (
           domain_id INTEGER NOT NULL,
           challenge_id UUID NOT NULL,
@@ -42,7 +41,6 @@
           PRIMARY KEY(domain_id, challenge_id)
         );"]
     (jdbc/execute! db-spec [schema-sql])
-    (jdbc/execute! db-spec [trigger-sql])
     (jdbc/execute! db-spec [challenges-sql])))
 
 (defn create-test-domain!
@@ -330,35 +328,6 @@
         (is (or (= 401 (:status response))
                 (= 403 (:status response)))
             "Should reject requests without authentication headers")))))
-
-(deftest test-soa-serial-auto-increment
-  (testing "SOA serial auto-increments when records change"
-    (let [domain "test.example.com"
-          hostname "soatest"
-          auth-hostname "testhost"
-          key-str (get *test-keys* :testhost)
-          path (str "/api/v2/domain/" domain "/host/" hostname "/ipv4")]
-      
-      ;; Get initial serial
-      (let [initial-serial (-> (jdbc/execute! *db-config*
-                                              ["SELECT notified_serial FROM domains WHERE name = ?"
-                                               domain])
-                               first
-                               :domains/notified_serial)]
-        
-        ;; Update a record
-        (let [req (make-authenticated-request :put path auth-hostname key-str :body "192.0.2.123")
-              response (*app* req)]
-          (is (= 200 (:status response))))
-        
-        ;; Check serial incremented
-        (let [new-serial (-> (jdbc/execute! *db-config*
-                                            ["SELECT notified_serial FROM domains WHERE name = ?"
-                                             domain])
-                             first
-                             :domains/notified_serial)]
-          (is (> new-serial initial-serial)
-              "SOA serial should increment after record update"))))))
 
 (defn -main
   "Run integration tests"

@@ -3,7 +3,8 @@
             [nexus.server :as server]
             [clojure.tools.cli :as cli]
             [clojure.string :as str]
-            [nexus.sql-datastore :as sql-store]
+            [nexus.pdns-datastore :as pdns-store]
+            [nexus.datastore :as store]
             [nexus.authenticator :as auth]
             [nexus.host-alias-map :as host-mapper]
             [nexus.metrics :as metrics]
@@ -48,6 +49,22 @@
     "Port of the Postgresql server backing PowerDNS."
     :parse-fn #(Integer/parseInt %)
     :default 5432]
+
+   [nil "--pdns-api-url URL"
+    "Base URL of the PowerDNS HTTP API, e.g. http://127.0.0.1:8081. Every record change goes through it."]
+
+   [nil "--pdns-api-key-file FILE"
+    "File containing the PowerDNS API key."]
+
+   [nil "--record-ttl SECONDS"
+    "TTL for host records written by Nexus."
+    :parse-fn #(Integer/parseInt %)
+    :default 3600]
+
+   [nil "--challenge-max-age SECONDS"
+    "ACME challenge records older than this are removed."
+    :parse-fn #(Integer/parseInt %)
+    :default 86400]
 
    ["-h" "--listen-host HOST"
     "Hostname or IP address on which to listen."]
@@ -125,6 +142,10 @@
                       (not (file-exists? (:host-alias-map options))))
                  (conj "host-alias-map file does not exist")
 
+                 (and (:pdns-api-key-file options)
+                      (not (file-exists? (:pdns-api-key-file options))))
+                 (conj "pdns-api-key-file does not exist")
+
                  (and (:host-public-keys options)
                       (not (file-exists? (:host-public-keys options))))
                  (conj "host-public-keys file does not exist")
@@ -148,15 +169,33 @@
                                   (auth/initialize-pubkey-collection host-public-keys verbose))
         challenge-authenticator-v3 (when challenge-public-keys
                                      (auth/initialize-pubkey-collection challenge-public-keys verbose))
-        store                   (sql-store/connect config)
+        store                   (pdns-store/connect config)
         host-mapper             (host-mapper/make-mapper host-alias-map)]
-    (server/create-app :host-authenticator          host-authenticator
+    {:store store
+     :app
+     (server/create-app :host-authenticator          host-authenticator
                        :challenge-authenticator     challenge-authenticator
                        :host-authenticator-v3       host-authenticator-v3
                        :challenge-authenticator-v3  challenge-authenticator-v3
                        :data-store                  store
                        :host-mapper                 host-mapper
-                       :verbose                     verbose)))
+                       :verbose                     verbose)}))
+
+(defn start-challenge-expiry!
+  "Remove stale ACME challenge records every hour. They are normally deleted
+  by the client that made them; this catches the ones a failed or
+  interrupted run left behind."
+  [store max-age-seconds]
+  (doto (java.util.concurrent.Executors/newSingleThreadScheduledExecutor)
+    (.scheduleWithFixedDelay
+     (fn []
+       (try
+         (let [n (store/expire-challenge-records store max-age-seconds)]
+           (when (pos? n)
+             (println (format "expired %d stale challenge record(s)" n))))
+         (catch Throwable e
+           (println (format "challenge expiry failed: %s" (.getMessage e))))))
+     1 60 java.util.concurrent.TimeUnit/MINUTES)))
 
 (defn start-server!
   "Start the server and wait for shutdown"
@@ -191,6 +230,8 @@
                         :database-port
                         :listen-host
                         :listen-port
+                        :pdns-api-url
+                        :pdns-api-key-file
                         :verbose}
         {:keys [options _ errors summary]}
         (parse-opts args required-keys cli-opts)]
@@ -206,5 +247,6 @@
         (msg-quit 1 (usage summary errors)))
       
       (let [metrics-registry (metrics/initialize-metrics)
-            app (initialize-app (assoc config :metrics-registry metrics-registry))]
+            {:keys [app store]} (initialize-app (assoc config :metrics-registry metrics-registry))]
+        (start-challenge-expiry! store (:challenge-max-age config))
         (start-server! app config)))))

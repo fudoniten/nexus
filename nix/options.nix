@@ -161,6 +161,41 @@ in {
 
       enable-dnssec = mkEnableOption "Enable DNSSEC for this domain.";
 
+      api-port = mkOption {
+        type = port;
+        description = ''
+          Port on 127.0.0.1 for the PowerDNS HTTP API. The Nexus server
+          makes every record change through it, so it must run on the same
+          host as this DNS server.
+        '';
+        default = 8081;
+      };
+
+      api-key-file = mkOption {
+        type = str;
+        description = ''
+          Where the PowerDNS API key is kept. It is generated on first start
+          if missing; only root can read it, and both PowerDNS and the Nexus
+          server receive it as a systemd credential.
+        '';
+        default = "/var/lib/nexus-powerdns-api/api.key";
+      };
+
+      allow-new-dnssec-keys = mkOption {
+        type = bool;
+        description = ''
+          Generate DNSSEC keys for a zone that has none. Safe the first
+          time a zone is signed; dangerous afterwards, because a zone that
+          had keys and lost them (a recreated database) would come back
+          signed with keys that do not match the DS record at its parent,
+          and every validating resolver would reject it. After a zone has
+          been signed once, startup refuses to sign it again with new keys
+          unless this is set; set it only to deliberately re-key, and
+          update the DS record at the registrar afterwards.
+        '';
+        default = false;
+      };
+
       debug = mkOption {
         type = bool;
         description = "Enable verbose debugging.";

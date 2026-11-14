@@ -96,8 +96,6 @@ The integration tests cover:
 - ✓ Verify all records persisted correctly
 
 ### Database Features
-- ✓ SOA serial auto-increment on record changes
-- ✓ Database trigger functionality
 - ✓ Transaction handling
 
 ## Architecture
@@ -121,9 +119,6 @@ Tests initialize the following schema:
 
 2. **Custom Tables**:
    - `challenges` - ACME DNS-01 validation records
-
-3. **Triggers**:
-   - `update_zone_serial_on_change` - Auto-increments SOA serial
 
 ## Environment Variables
 

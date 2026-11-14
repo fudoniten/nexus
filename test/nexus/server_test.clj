@@ -8,7 +8,8 @@
             [fudo-clojure.common :refer [current-epoch-timestamp base64-encode-string]]
             [nexus.crypto :as crypto]
             [nexus.authenticator :as auth]
-            [clojure.data.json :as json])
+            [clojure.data.json :as json]
+            [slingshot.slingshot :refer [throw+]])
   (:import javax.crypto.Mac))
 
 (defn- make-datastore [data]
@@ -286,54 +287,78 @@
                  :status)
               401)))))
 
-(deftest sshfp-rejected-for-alias
-  (let [sshfps-stored (atom nil)
-        datastore (reify ds/IDataStore
-                    (set-host-ipv4   [_ _ _ ip]     ip)
-                    (set-host-ipv6   [_ _ _ ip]     ip)
-                    (set-host-sshfps [_ _ host sshfps]
-                      (reset! sshfps-stored {:host host :sshfps sshfps})
-                      sshfps)
-                    (set-host-batch  [_ _ host data]
-                      (when (:sshfps data)
-                        (reset! sshfps-stored {:host host :sshfps (:sshfps data)}))
-                      data)
-                    (get-host-ipv4   [_ _ _] nil)
-                    (get-host-ipv6   [_ _ _] nil)
-                    (get-host-sshfps [_ _ _] nil))
-        host-keys {:host0 (gen-key)}
-        ;; alias0.test.com is an alias for host0
-        mapper (reify mapper/IHostAliasMap
-                 (get-host [_ host domain]
-                   (if (= (format "%s.%s" (name host) (name domain))
-                          "alias0.test.com")
-                     :host0
-                     (keyword host))))
-        auther (auth/make-authenticator host-keys false)
-        app    (srv/create-app :host-authenticator auther
-                               :data-store    datastore
-                               :host-mapper   mapper
-                               :max-delay     5)]
+(deftest sshfp-accepted-for-alias
+  (testing "an alias is a name the host publishes its own records under, so
+            its SSHFPs are stored like any other host's"
+    (let [batches (atom [])
+          datastore (reify ds/IDataStore
+                      (set-host-batch [_ _ host data]
+                        (swap! batches conj {:host host :data data})
+                        data))
+          host-keys {:host0 (gen-key)}
+          mapper (reify mapper/IHostAliasMap
+                   (get-host [_ host domain]
+                     (if (= (format "%s.%s" (name host) (name domain)) "alias0.test.com")
+                       :host0
+                       (keyword host))))
+          app    (srv/create-app :host-authenticator (auth/make-authenticator host-keys false)
+                                 :data-store    datastore
+                                 :host-mapper   mapper
+                                 :max-delay     5)
+          sshfp  (gen-sshfp)
+          resp   (app (-> (ring/request :put "/api/v2/domain/test.com/host/alias0/batch")
+                          (ring/body (json/write-str {:ipv4 "1.1.1.1" :sshfps [sshfp]}))
+                          (sign-request (:host0 host-keys))))]
+      (is (= 200 (:status resp)))
+      (is (= [sshfp] (-> @batches first :data :sshfps))))))
 
-    (testing "sshfp-set-on-canonical-host-succeeds"
-      (reset! sshfps-stored nil)
-      (let [sshfp (gen-sshfp)
-            resp  (app (-> (ring/request :put "/api/v2/domain/test.com/host/host0/sshfps")
-                           (ring/body sshfp)
-                           (sign-request (:host0 host-keys))))]
-        (is (= 200 (:status resp)))
-        (is (some? @sshfps-stored) "SSHFPs should be stored for canonical host")))
+(defn- refusing-datastore
+  "A datastore whose every write is refused the way the PowerDNS API refuses
+  a CNAME conflict."
+  []
+  (let [refuse (fn [& _] (throw+ {::ds/error :conflict
+                                  ::ds/message "RRset host0.test.com. IN A: Conflicts with pre-existing RRset"}))]
+    (reify ds/IDataStore
+      (set-host-ipv4   [_ d h v] (refuse d h v))
+      (set-host-ipv6   [_ d h v] (refuse d h v))
+      (set-host-sshfps [_ d h v] (refuse d h v))
+      (set-host-batch  [_ d h v] (refuse d h v)))))
 
-    (testing "sshfp-set-on-alias-is-dropped"
-      (reset! sshfps-stored nil)
-      (let [sshfp (gen-sshfp)
-            resp  (app (-> (ring/request :put "/api/v2/domain/test.com/host/alias0/sshfps")
-                           (ring/body sshfp)
-                           (sign-request (:host0 host-keys))))]
-        (is (= 200 (:status resp)) "Should return 200 for backward compatibility")
-        (is (str/includes? (:body resp) "warning") "Response should contain a warning")
-        (is (str/includes? (:body resp) "CNAME") "Warning should mention CNAME incompatibility")
-        (is (nil? @sshfps-stored) "SSHFPs should NOT be stored for alias")))))
+(deftest cname-conflict-is-a-409
+  (let [host-keys {:host0 (gen-key)}
+        app (srv/create-app :host-authenticator (auth/make-authenticator host-keys false)
+                            :data-store  (refusing-datastore)
+                            :host-mapper (reify mapper/IHostAliasMap
+                                           (get-host [_ host _] (keyword host)))
+                            :max-delay   5)]
+    (testing "a write the DNS server refuses as a CNAME conflict is a 409 the
+              client can see, not a 500"
+      (let [resp (app (-> (ring/request :put "/api/v2/domain/test.com/host/host0/batch")
+                          (ring/body (json/write-str {:ipv4 "1.1.1.1"}))
+                          (sign-request (:host0 host-keys))))]
+        (is (= 409 (:status resp)))
+        (is (str/includes? (:body resp) "Conflicts with pre-existing RRset")))
+      (is (= 409 (-> (app (-> (ring/request :put "/api/v2/domain/test.com/host/host0/ipv4")
+                              (ring/body (json/write-str "1.1.1.1"))
+                              (sign-request (:host0 host-keys))))
+                     :status))))))
+
+(deftest batch-without-addresses-is-refused
+  (testing "a batch replaces the host's whole state, so one with no address
+            would delete the host; it is refused instead"
+    (let [written   (atom nil)
+          host-keys {:host0 (gen-key)}
+          app (srv/create-app :host-authenticator (auth/make-authenticator host-keys false)
+                              :data-store  (reify ds/IDataStore
+                                             (set-host-batch [_ _ _ data] (reset! written data) data))
+                              :host-mapper (reify mapper/IHostAliasMap
+                                             (get-host [_ host _] (keyword host)))
+                              :max-delay   5)
+          resp (app (-> (ring/request :put "/api/v2/domain/test.com/host/host0/batch")
+                        (ring/body (json/write-str {:sshfps [(gen-sshfp)]}))
+                        (sign-request (:host0 host-keys))))]
+      (is (= 400 (:status resp)))
+      (is (nil? @written)))))
 
 ;; --- /api/v3: public-key (Ed25519) authenticated API ---
 
