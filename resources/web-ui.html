@@ -362,7 +362,7 @@
             recordsBody.innerHTML = '<tr><td colspan="7" class="loading">Loading records...</td></tr>';
             
             try {
-                const response = await fetch('/api/v2/records');
+                const response = await fetch('/api/v3/records');
                 if (!response.ok) {
                     throw new Error(`HTTP ${response.status}: ${response.statusText}`);
                 }

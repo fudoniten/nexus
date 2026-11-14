@@ -36,7 +36,7 @@ sudo cp systemd/nexus-client@.* /etc/systemd/system/
 sudo mkdir -p /etc/systemd/system/nexus-client@public.service.d/
 sudo tee /etc/systemd/system/nexus-client@public.service.d/override.conf <<EOF
 [Service]
-LoadCredential=hmac.key:/path/to/your/hmac.key
+LoadCredential=private.key:/path/to/your/host.key
 Environment="NEXUS_HOSTNAME=$(hostname -s)"
 Environment="NEXUS_DOMAINS=example.com"
 Environment="NEXUS_SERVERS=dns1.example.com,dns2.example.com"
@@ -50,7 +50,7 @@ ExecStart=/usr/bin/env bb /usr/local/bin/nexus-client.clj \\
   --domains=\${NEXUS_DOMAINS} \\
   --servers=\${NEXUS_SERVERS} \\
   --port=\${NEXUS_PORT} \\
-  --key-file=\${CREDENTIALS_DIRECTORY}/hmac.key \\
+  --private-key-file=\${CREDENTIALS_DIRECTORY}/private.key \\
   \${NEXUS_IPV4_FLAG} \\
   \${NEXUS_IPV6_FLAG}
 EOF

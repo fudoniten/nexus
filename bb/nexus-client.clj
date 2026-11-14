@@ -8,9 +8,7 @@
             [clojure.java.io :as io]
             [clojure.edn :as edn]
             [cheshire.core :as json])
-  (:import [javax.crypto Mac]
-           [javax.crypto.spec SecretKeySpec]
-           [java.security KeyFactory Signature]
+  (:import [java.security KeyFactory Signature]
            [java.security.spec PKCS8EncodedKeySpec]
            [java.util Base64]
            [java.net InetAddress]
@@ -172,53 +170,24 @@
        (filter tailscale?)
        first))
 
-;; --- Signature: HMAC (legacy /api/v2) or Ed25519 (/api/v3) ---
+;; --- Signature: Ed25519 (/api/v3) ---
 
 (defn base64-encode [bytes]
   (.encodeToString (Base64/getEncoder) bytes))
-
-(defn decode-key
-  "Decode a key string in 'ALGO:BASE64' format (as produced by nexus-generate-key) into a SecretKeySpec.
-
-  Rejects an Ed25519-formatted key (a /api/v3 private key, not an HMAC
-  secret) with a clear message rather than letting it reach
-  Mac/getInstance, which fails with an opaque NoSuchAlgorithmException --
-  the classic symptom of a private key handed to --key-file/--hmac-key-file
-  instead of --private-key-file."
-  [key-str]
-  (let [[algo encoded-key] (str/split (str/trim key-str) #":" 2)]
-    (when (= algo "Ed25519")
-      (throw (ex-info
-              (str "--key-file/--hmac-key-file was given an Ed25519 key "
-                   "(a private key for the /api/v3 pubkey API) -- pass it "
-                   "via --private-key-file instead")
-              {:algorithm algo})))
-    (let [key-bytes (.decode (Base64/getDecoder) encoded-key)]
-      (SecretKeySpec. key-bytes algo))))
-
-(defn hmac-sign
-  "Generate an HMAC signature using the encoded key string."
-  [key-str message]
-  (let [key (decode-key key-str)
-        mac (doto (Mac/getInstance (.getAlgorithm key))
-              (.init key))]
-    (base64-encode (.doFinal mac (.getBytes message "UTF-8")))))
 
 (defn decode-private-key
   "Decode a private key string in 'Ed25519:BASE64' format (PKCS8-encoded, as
    produced by nexus-generate-key --keypair) into a PrivateKey.
 
-   Rejects a non-Ed25519 key (e.g. an HMAC secret) with a clear message --
-   the mirror image of decode-key's check, for a key handed to
-   --private-key-file that should have gone to --key-file/--hmac-key-file
-   instead."
+   Rejects anything else (an old HMAC secret, above all) with a clear
+   message: the server no longer accepts HMAC signatures."
   [key-str]
   (let [[algo encoded-key] (str/split (str/trim key-str) #":" 2)]
     (when (not= algo "Ed25519")
       (throw (ex-info
               (str "--private-key-file was given a " algo " key, not Ed25519 "
-                   "-- an HMAC key belongs in --key-file/--hmac-key-file "
-                   "instead")
+                   "-- HMAC keys and /api/v2 are gone; generate a keypair "
+                   "with nexus-generate-key --keypair")
               {:algorithm algo})))
     (let [key-bytes (.decode (Base64/getDecoder) encoded-key)
           factory   (KeyFactory/getInstance "Ed25519")]
@@ -245,8 +214,8 @@
 
 (defn make-authenticated-request
   "Make an authenticated HTTP request, signed with sign-fn (a fn from
-   message string to Base64 signature string -- either hmac-sign or
-   ed25519-sign, partially applied to the encoded key)."
+   message string to Base64 signature string -- ed25519-sign, partially
+   applied to the encoded key)."
   [method url body sign-fn verbose]
   (let [timestamp (str (epoch-timestamp))
         uri (str "/" (str/join "/" (drop 3 (str/split url #"/"))))
@@ -290,10 +259,18 @@
 
 ;; --- Local State Cache ---
 
-(defn load-cached-state [state-file]
+(defn load-cached-state
+  "The server-confirmed state from the last successful update, or nil when
+  there is none or it is older than max-age-seconds. The age limit is what
+  repairs the server side: records deleted or fixed by hand there are
+  re-sent within a day, instead of waiting for this host's IP to change."
+  [state-file max-age-seconds]
   (try
-    (when (.exists (io/file state-file))
-      (edn/read-string (slurp state-file)))
+    (let [f (io/file state-file)]
+      (when (and (.exists f)
+                 (< (- (System/currentTimeMillis) (.lastModified f))
+                    (* 1000 max-age-seconds)))
+        (edn/read-string (slurp f))))
     (catch Exception _
       nil)))
 
@@ -368,15 +345,25 @@
    Returns number of failures."
   [opts]
   (let [state-file    (:state-file opts)
-        cached-state  (load-cached-state state-file)
+        cached-state  (load-cached-state state-file (:max-cache-age opts))
         current-state (get-current-state opts)]
     (when (:verbose opts)
       (println "Cached state:" cached-state)
       (println "Current state:" current-state))
-    (if (= current-state cached-state)
+    (cond
+      ;; An update replaces the host's whole record state, so sending one
+      ;; with no address would remove the host from DNS. With no address
+      ;; the network is most likely not up yet; the next run will see it.
+      (not (or (:ipv4 current-state) (:ipv6 current-state)))
+      (do (println "No address found yet, skipping update")
+          0)
+
+      (= current-state cached-state)
       (do (when (:verbose opts)
             (println "State unchanged, skipping update"))
           0)
+
+      :else
       (do (println "State changed, updating servers...")
           (let [[failures confirmed] (update-all-servers! opts current-state)]
             (if (zero? failures)
@@ -411,8 +398,7 @@
    :port {:desc "Server port"
           :default 80
           :coerce :int}
-   :key-file {:desc "HMAC key file path (legacy /api/v2). Exactly one of --key-file or --private-key-file is required."}
-   :private-key-file {:desc "Ed25519 private key file path, as written by nexus-generate-key --keypair (/api/v3). Exactly one of --key-file or --private-key-file is required."}
+   :private-key-file {:desc "Ed25519 private key file path, as written by nexus-generate-key --keypair. Required."}
    :ipv4 {:desc "Report IPv4 address"
           :default true
           :coerce :boolean}
@@ -428,6 +414,9 @@
    :private {:desc "Report private IPs"
              :default false
              :coerce :boolean}
+   :max-cache-age {:desc "Re-send even an unchanged state once the cache is this many seconds old"
+                   :default 86400
+                   :coerce :int}
    :state-file {:desc "Path to state cache file"
                :default (str (or (System/getenv "CACHE_DIRECTORY") "/var/cache/nexus-client")
                              "/state.edn")}
@@ -465,36 +454,21 @@
       (println "ERROR: At least one domain must be specified (--domains)")
       (System/exit 1))
     
-    (when (and (:key-file opts) (:private-key-file opts))
-      (println "ERROR: specify only one of --key-file or --private-key-file, not both")
+    (when-not (:private-key-file opts)
+      (println "ERROR: --private-key-file must be specified (an Ed25519 key, as written by nexus-generate-key --keypair)")
       (System/exit 1))
 
-    (when-not (or (:key-file opts) (:private-key-file opts))
-      (println "ERROR: a key file must be specified: --key-file (legacy HMAC, /api/v2) or --private-key-file (Ed25519, /api/v3)")
-      (System/exit 1))
-
-    (let [private-key-file (:private-key-file opts)
-          key-file         (:key-file opts)
-          key-file-path    (or private-key-file key-file)
-          key-content      (str/trim (slurp key-file-path))
-          ;; Keys are encoded "ALGO:BASE64...", e.g. "Ed25519:MCow..." (as
-          ;; written by nexus-generate-key --keypair) or "HmacSHA512:...".
-          ;; Catch the wrong file/flag combination here, with an
-          ;; actionable message, rather than letting it fall through to
-          ;; e.g. Mac.getInstance throwing NoSuchAlgorithmException on an
-          ;; Ed25519-labeled key three layers of exceptions deep.
-          ed25519?         (str/starts-with? key-content "Ed25519:")]
-      (when (and private-key-file (not ed25519?))
-        (println (format "ERROR: --private-key-file (%s) does not look like an Ed25519 key (expected a value starting with \"Ed25519:\", as written by nexus-generate-key --keypair)." key-file-path))
-        (System/exit 1))
-      (when (and key-file ed25519?)
-        (println (format "ERROR: --key-file (%s) points at an Ed25519 key, not an HMAC key. Use --private-key-file instead of --key-file." key-file-path))
+    (let [key-file-path (:private-key-file opts)
+          key-content   (str/trim (slurp key-file-path))]
+      ;; Keys are encoded "ALGO:BASE64...", e.g. "Ed25519:MCow...". Catch an
+      ;; old HMAC key here, with an actionable message, rather than three
+      ;; layers of exceptions deep.
+      (when-not (str/starts-with? key-content "Ed25519:")
+        (println (format "ERROR: --private-key-file (%s) does not look like an Ed25519 key (expected a value starting with \"Ed25519:\", as written by nexus-generate-key --keypair). HMAC keys and /api/v2 are no longer supported." key-file-path))
         (System/exit 1))
 
-      (let [sign-fn (if private-key-file
-                      (partial ed25519-sign key-content)
-                      (partial hmac-sign key-content))
-            api-version (if private-key-file :v3 :v2)
+      (let [sign-fn (partial ed25519-sign key-content)
+            api-version :v3
             ip-type (cond (:tailscale opts) :tailscale
                           (:private opts) :private
                           :else :public)

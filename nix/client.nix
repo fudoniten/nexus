@@ -14,17 +14,8 @@ let
     (map (path: nameValuePair (baseNameOf path) path) cfg.ssh-key-files);
   hasSshfps = (lib.length cfg.ssh-key-files) > 0;
 
-  # A host authenticates with exactly one key: its legacy HMAC key against
-  # /api/v2, or its Ed25519 private key (once migrated) against /api/v3.
-  usingPrivateKey = cfg.private-key-file != null;
-  keyCredentialName = if usingPrivateKey then "private.key" else "hmac.key";
-  keyCredential = "${keyCredentialName}:${
-      if usingPrivateKey then cfg.private-key-file else cfg.hmac-key-file
-    }";
-  keyFlag = if usingPrivateKey then
-    "--private-key-file=$CREDENTIALS_DIRECTORY/${keyCredentialName}"
-  else
-    "--key-file=$CREDENTIALS_DIRECTORY/${keyCredentialName}";
+  keyCredential = "private.key:${cfg.private-key-file}";
+  keyFlag = "--private-key-file=$CREDENTIALS_DIRECTORY/private.key";
 
   # Define domain filters at top level for reuse across services/paths/timers
   publicDomains =
@@ -38,12 +29,6 @@ in {
   imports = [ ./options.nix ];
 
   config = mkIf cfg.enable {
-    assertions = [{
-      assertion = (cfg.hmac-key-file != null) != (cfg.private-key-file != null);
-      message =
-        "nexus.client: exactly one of hmac-key-file (legacy /api/v2) or private-key-file (/api/v3) must be set";
-    }];
-
     systemd = {
       services = let
         nexusClientService = type: domains:
@@ -64,16 +49,13 @@ in {
               concatStringsSep "," (map ({ domain, ... }: domain) domains);
             serverFlags =
               concatStringsSep " " (map (s: "--servers=${s}") cfg.servers);
-            globalDomainAliases = domain:
-              config.nexus.domains.${domain}.aliases or {};
+            # Every alias here is published as an A/AAAA for this host. This
+            # used to consult nexus.domains.<d>.aliases too, but that is the
+            # CNAME map: an alias found there was a name that would also be
+            # written as a CNAME, which is exactly the A + CNAME conflict.
+            # The server now refuses that combination at build time.
             aliasList = concatMap ({ domain, aliases, ... }:
-              let
-                domainAliasMap = globalDomainAliases domain;
-                myAliases = filter (alias:
-                  let mappedHost = domainAliasMap.${alias} or null;
-                  in mappedHost == null || mappedHost == hostname
-                ) aliases;
-              in map (alias: "${alias}:${domain}") myAliases) domains;
+              map (alias: "${alias}:${domain}") aliases) domains;
             aliasFlags =
               concatStringsSep " " (map (a: "--aliases=${a}") aliasList);
             sshfpFlags = if hasSshfps then

@@ -17,7 +17,11 @@ let
 
       aliases = mkOption {
         type = attrsOf str;
-        description = "Map of alias to authoritative hostname.";
+        description = ''
+          Map of alias to CNAME target. Static: written at startup. A name
+          here must not also be a host alias (nexus.server.client-alias-map),
+          which publishes A/AAAA instead.
+        '';
         default = { };
       };
 
@@ -161,6 +165,41 @@ in {
 
       enable-dnssec = mkEnableOption "Enable DNSSEC for this domain.";
 
+      api-port = mkOption {
+        type = port;
+        description = ''
+          Port on 127.0.0.1 for the PowerDNS HTTP API. The Nexus server
+          makes every record change through it, so it must run on the same
+          host as this DNS server.
+        '';
+        default = 8081;
+      };
+
+      api-key-file = mkOption {
+        type = str;
+        description = ''
+          Where the PowerDNS API key is kept. It is generated on first start
+          if missing; only root can read it, and both PowerDNS and the Nexus
+          server receive it as a systemd credential.
+        '';
+        default = "/var/lib/nexus-powerdns-api/api.key";
+      };
+
+      allow-new-dnssec-keys = mkOption {
+        type = bool;
+        description = ''
+          Generate DNSSEC keys for a zone that has none. Safe the first
+          time a zone is signed; dangerous afterwards, because a zone that
+          had keys and lost them (a recreated database) would come back
+          signed with keys that do not match the DS record at its parent,
+          and every validating resolver would reject it. After a zone has
+          been signed once, startup refuses to sign it again with new keys
+          unless this is set; set it only to deliberately re-key, and
+          update the DS record at the registrar afterwards.
+        '';
+        default = false;
+      };
+
       debug = mkOption {
         type = bool;
         description = "Enable verbose debugging.";
@@ -191,12 +230,6 @@ in {
         default = false;
       };
 
-      host-keys = mkOption {
-        type = attrsOf str;
-        description = "Map of hostname to host HMAC key.";
-        default = { };
-      };
-
       internal-port = mkOption {
         type = port;
         description = "Port on which to listen for requests from nginx.";
@@ -208,40 +241,14 @@ in {
         description = "Hostnames on which to listen for incoming requests.";
       };
 
-      client-keys-file = mkOption {
-        type = nullOr str;
-        description = ''
-          Path (on the local host) to JSON file containing a hostname to HMAC
-          key, for the legacy /api/v2. Required unless host-public-keys is
-          set: once every host has migrated to a keypair, this secret can be
-          dropped entirely.
-        '';
-        default = null;
-      };
-
-      challenge-keys-file = mkOption {
-        type = nullOr str;
-        description = ''
-          Path (on the local host) to JSON file containing a client to HMAC
-          key for challenge requests, for the legacy /api/v2. Required unless
-          challenge-public-keys is set: once every challenge client has
-          migrated to a keypair, this secret can be dropped entirely.
-        '';
-        default = null;
-      };
-
       host-public-keys = mkOption {
         type = attrsOf str;
         description = ''
           Map of hostname to host Ed25519 public key, as written to
-          <name>.pub by nexus-generate-key --keypair. When non-empty, this
-          enables the public-key authenticated /api/v3 API alongside the
-          legacy HMAC-authenticated /api/v2, so already-migrated and
-          not-yet-migrated hosts can be served side by side.
+          <name>.pub by nexus-generate-key --keypair. Hosts authenticate
+          to /api/v3 with the matching private key.
 
-          Unlike host-keys/client-keys-file, these are public keys: they
-          are not secret and can be committed in plaintext (e.g. to version
-          control), unlike the shared HMAC keys they replace.
+          These are public keys: not secret, and fine to commit.
         '';
         default = { };
       };
@@ -251,13 +258,7 @@ in {
         description = ''
           Map of challenge-client name (the "service" a client identifies
           as) to its Ed25519 public key, as written to <name>.pub by
-          nexus-generate-key --keypair. When non-empty, challenge requests
-          can be authenticated with a keypair on /api/v3, alongside the
-          legacy HMAC-authenticated /api/v2.
-
-          Challenge clients migrate independently of hosts: setting this
-          alone brings up /api/v3 for challenges even while every host is
-          still on /api/v2, and vice versa.
+          nexus-generate-key --keypair.
 
           Not secret; see host-public-keys.
         '';
@@ -280,7 +281,11 @@ in {
         });
       in mkOption {
         type = attrsOf (listOf domainAliases);
-        description = "Map of host to host aliases.";
+        description = ''
+          Map of host to the aliases it publishes its own A/AAAA records
+          under, and may update. An alias must not also be a CNAME
+          (nexus.domains.<domain>.aliases); the server assertion checks.
+        '';
         default = { };
       };
 
@@ -368,25 +373,13 @@ in {
         default = { };
       };
 
-      hmac-key-file = mkOption {
-        type = nullOr str;
-        description = ''
-          Path (on local host) of file containing this host's HMAC key.
-          Authenticates against the legacy /api/v2 API. Exactly one of
-          hmac-key-file or private-key-file must be set.
-        '';
-        default = null;
-      };
-
       private-key-file = mkOption {
-        type = nullOr str;
+        type = str;
         description = ''
           Path (on local host) of file containing this host's Ed25519
           private key, as written by nexus-generate-key --keypair.
-          Authenticates against the /api/v3 API. Exactly one of
-          hmac-key-file or private-key-file must be set.
+          Authenticates against the /api/v3 API.
         '';
-        default = null;
       };
     };
   };

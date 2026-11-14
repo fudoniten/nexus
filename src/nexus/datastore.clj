@@ -34,8 +34,10 @@
   
   (set-host-batch
     [_ domain host batch-data]
-    "Set multiple record types for a host in a single transaction.
-     batch-data is a map that may contain :ipv4, :ipv6, and/or :sshfps keys")
+    "Set the full record state for a host in one atomic change.
+     batch-data is a map that may contain :ipv4, :ipv6, and/or :sshfps keys;
+     a key that is absent means the host no longer has records of that type,
+     and any it had are removed.")
   
   (get-challenge-records
     [_ domain]
@@ -49,6 +51,28 @@
     [_ domain challenge-id]
     "Delete an ACME challenge record after validation")
   
+  (expire-challenge-records
+    [_ max-age-seconds]
+    "Remove ACME challenge records created more than max-age-seconds ago")
+
   (list-all-records
     [_]
     "List all DNS records in the database with domain information"))
+
+(defn store-error?
+  "True for the error maps a datastore throws (with slingshot's throw+) for
+  a write the DNS server refused. Usable directly as a slingshot catch
+  selector."
+  [x]
+  (and (map? x) (contains? x ::error)))
+
+(defn error-response
+  "The HTTP response for a store-error? map: a client error the caller can
+  act on, rather than a bare 500."
+  [{::keys [error message]}]
+  {:status (case error
+             :conflict     409
+             :no-such-zone 404
+             :invalid      400
+             502)
+   :body   (str "rejected: " message)})

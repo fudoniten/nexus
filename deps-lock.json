@@ -1763,6 +1763,16 @@
       "hash": "sha256-q2CmyyuMxXyG21ECte4p8hWsg8/20wEblV+fxb5dAZ0="
     },
     {
+      "mvn-path": "org/clojure/clojure/1.12.5/clojure-1.12.5.jar",
+      "mvn-repo": "https://repo1.maven.org/maven2/",
+      "hash": "sha256-397hMUYCFqhP7yLlN7sNBXmWX49wM410gyPf8m+OWos="
+    },
+    {
+      "mvn-path": "org/clojure/clojure/1.12.5/clojure-1.12.5.pom",
+      "mvn-repo": "https://repo1.maven.org/maven2/",
+      "hash": "sha256-J4xR2XfBloST2NTLDFxg4sslUNYEhcOBPPFh5Wr2iFg="
+    },
+    {
       "mvn-path": "org/clojure/core.async/1.6.673/core.async-1.6.673.jar",
       "mvn-repo": "https://repo1.maven.org/maven2/",
       "hash": "sha256-FoHdGIjHVAH0RLURyDU/vaPOsadgiBCiPd0l0QRfkHo="
