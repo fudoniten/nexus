@@ -207,7 +207,7 @@ let
 
       static-records = [
         # DMARC policy for email authentication
-        (mkRecord "_dmark.${domain-name}" "TXT" ''
+        (mkRecord "_dmarc.${domain-name}" "TXT" ''
           "v=DMARC1; p=reject; rua=mailto:${domain.admin}; ruf=mailto:${domain.admin}; fo=1;"'')
         # SPF record defining authorized mail senders
         (mkRecord domain-name "TXT" (let
