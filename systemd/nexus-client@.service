@@ -10,7 +10,7 @@ RuntimeDirectory=nexus-client-%i
 CacheDirectory=nexus-client-%i
 
 # Credentials will be loaded from system configuration
-# LoadCredential=hmac.key:/path/to/hmac.key
+# LoadCredential=private.key:/path/to/host.key
 # Environment will be set by NixOS module or systemd drop-in:
 # Environment="NEXUS_HOSTNAME=myhost"
 # Environment="NEXUS_DOMAINS=example.com,example.org"
@@ -23,7 +23,7 @@ ExecStart=/usr/bin/env bb /path/to/nexus-client.clj \
   --domains=${NEXUS_DOMAINS} \
   --servers=${NEXUS_SERVERS} \
   --port=${NEXUS_PORT} \
-  --key-file=${CREDENTIALS_DIRECTORY}/hmac.key \
+  --private-key-file=${CREDENTIALS_DIRECTORY}/private.key \
   --state-file=${CACHE_DIRECTORY}/state.edn \
   ${NEXUS_IPV4_FLAG} \
   ${NEXUS_IPV6_FLAG} \

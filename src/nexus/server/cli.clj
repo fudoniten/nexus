@@ -18,17 +18,11 @@
 
 (def cli-opts
   "Definition of the command-line options for the Nexus server."
-  [["-k" "--host-keys HOST_KEYS"
-    "File containing host/HMAC-key pairs, in json format (legacy /api/v2). Required unless --host-public-keys is given."]
-
-   ["-c" "--challenge-keys CHALLENGE_KEYS"
-    "File containing challenge HMAC keys, in json format (legacy /api/v2). Required unless --challenge-public-keys is given."]
-
-   [nil "--host-public-keys HOST_PUBLIC_KEYS"
-    "File containing host/Ed25519-public-key pairs, in json format. Not secret. Enables public-key-authenticated host requests on /api/v3, alongside the legacy HMAC-authenticated /api/v2."]
+  [[nil "--host-public-keys HOST_PUBLIC_KEYS"
+    "File containing host/Ed25519-public-key pairs, in json format. Not secret."]
 
    [nil "--challenge-public-keys CHALLENGE_PUBLIC_KEYS"
-    "File containing challenge-client Ed25519 public keys, in json format. Not secret. Enables public-key-authenticated challenge requests on /api/v3, alongside the legacy HMAC-authenticated /api/v2."]
+    "File containing challenge-client Ed25519 public keys, in json format. Not secret."]
 
    ["-M" "--host-alias-map HOST_ALIAS_MAP"
     "File containing host to domain/alias mapping, in json format."]
@@ -115,71 +109,29 @@
   (run-jetty app {:host host :port port :join? false}))
 
 (defn validate-config
-  "Validate the configuration options.
-
-  Host records and ACME challenge records each need at least one kind of key:
-  an HMAC key file for the legacy /api/v2, an Ed25519 public key file for
-  /api/v3, or both while that API's clients are migrating. Once every client
-  of one kind has moved to a keypair, that kind's HMAC key file -- the only
-  secret the server had to hold for it -- can be dropped entirely."
+  "Check that every file option names a file that exists."
   [options]
-  (let [errors (cond-> []
-                 (not (or (:host-keys options) (:host-public-keys options)))
-                 (conj "no host keys given: pass --host-keys (legacy HMAC) or --host-public-keys (Ed25519), or both")
-
-                 (not (or (:challenge-keys options) (:challenge-public-keys options)))
-                 (conj "no challenge keys given: pass --challenge-keys (legacy HMAC) or --challenge-public-keys (Ed25519), or both")
-
-                 (and (:host-keys options)
-                      (not (file-exists? (:host-keys options))))
-                 (conj "host-keys file does not exist")
-
-                 (and (:challenge-keys options)
-                      (not (file-exists? (:challenge-keys options))))
-                 (conj "challenge-keys file does not exist")
-
-                 (and (:host-alias-map options)
-                      (not (file-exists? (:host-alias-map options))))
-                 (conj "host-alias-map file does not exist")
-
-                 (and (:pdns-api-key-file options)
-                      (not (file-exists? (:pdns-api-key-file options))))
-                 (conj "pdns-api-key-file does not exist")
-
-                 (and (:host-public-keys options)
-                      (not (file-exists? (:host-public-keys options))))
-                 (conj "host-public-keys file does not exist")
-
-                 (and (:challenge-public-keys options)
-                      (not (file-exists? (:challenge-public-keys options))))
-                 (conj "challenge-public-keys file does not exist"))]
+  (let [file-options [:host-public-keys :challenge-public-keys
+                      :host-alias-map :pdns-api-key-file]
+        errors (for [k file-options
+                     :let [f (get options k)]
+                     :when (and f (not (file-exists? f)))]
+                 (format "%s file does not exist: %s" (name k) f))]
     (if (seq errors)
-      (assoc options :errors errors)
+      (assoc options :errors (vec errors))
       options)))
 
 (defn initialize-app
   "Initialize the application components"
-  [{:keys [host-keys challenge-keys host-alias-map
-           host-public-keys challenge-public-keys verbose] :as config}]
-  (let [host-authenticator      (when host-keys
-                                  (auth/initialize-key-collection host-keys verbose))
-        challenge-authenticator (when challenge-keys
-                                  (auth/initialize-key-collection challenge-keys verbose))
-        host-authenticator-v3   (when host-public-keys
-                                  (auth/initialize-pubkey-collection host-public-keys verbose))
-        challenge-authenticator-v3 (when challenge-public-keys
-                                     (auth/initialize-pubkey-collection challenge-public-keys verbose))
-        store                   (pdns-store/connect config)
-        host-mapper             (host-mapper/make-mapper host-alias-map)]
+  [{:keys [host-alias-map host-public-keys challenge-public-keys verbose] :as config}]
+  (let [store (pdns-store/connect config)]
     {:store store
      :app
-     (server/create-app :host-authenticator          host-authenticator
-                       :challenge-authenticator     challenge-authenticator
-                       :host-authenticator-v3       host-authenticator-v3
-                       :challenge-authenticator-v3  challenge-authenticator-v3
-                       :data-store                  store
-                       :host-mapper                 host-mapper
-                       :verbose                     verbose)}))
+     (server/create-app :host-authenticator      (auth/initialize-pubkey-collection host-public-keys verbose)
+                        :challenge-authenticator (auth/initialize-pubkey-collection challenge-public-keys verbose)
+                        :data-store              store
+                        :host-mapper             (host-mapper/make-mapper host-alias-map)
+                        :verbose                 verbose)}))
 
 (defn start-challenge-expiry!
   "Remove stale ACME challenge records every hour. They are normally deleted
@@ -220,10 +172,9 @@
   "The entry point for the Nexus server application.
   Parses command-line arguments, initializes components, and starts the server."
   [& args]
-  (let [;; host-keys/challenge-keys are deliberately absent here: each is
-        ;; required only when its /api/v3 public-key counterpart was not
-        ;; given, which validate-config checks.
-        required-keys #{:database
+  (let [required-keys #{:host-public-keys
+                        :challenge-public-keys
+                        :database
                         :database-user
                         :database-password-file
                         :database-host

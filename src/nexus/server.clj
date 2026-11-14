@@ -417,10 +417,15 @@
   (fn [handler]
     (fn [{{:keys [access-timestamp]} :headers
          :as req}]
-      (if (nil? access-timestamp)
+      (cond
+        (nil? access-timestamp)
         { :status 401 :body "rejected: missing request timestamp" }
-        (let [timestamp (-> access-timestamp
-                            (Long/parseLong))
+
+        (not (re-matches #"-?\d{1,18}" access-timestamp))
+        { :status 400 :body "rejected: request timestamp is not an integer" }
+
+        :else
+        (let [timestamp (Long/parseLong access-timestamp)
               current-timestamp (current-epoch-timestamp)
               time-diff (abs (- timestamp current-timestamp))]
           (log/info! {:event "timing-validation"
@@ -450,8 +455,7 @@
          (throw e))))))
 
 (defn- challenge-routes
-  "Build the challenge-record routes (/challenges, /challenge) for one API
-  version."
+  "Build the challenge-record routes (/challenges, /challenge)."
   [{:keys [challenge-authenticator data-store metrics-registry max-delay verbose]}]
   [["/challenges" {:middleware [(make-challenge-signature-authenticator verbose challenge-authenticator metrics-registry)
                                 (make-timing-validator max-delay)]}
@@ -462,7 +466,7 @@
                        :delete {:handler (delete-challenge-record data-store metrics-registry)}}]]])
 
 (defn- host-routes
-  "Build the host-record routes (/host) for one API version."
+  "Build the host-record routes (/host)."
   [{:keys [host-authenticator data-store host-mapper metrics-registry max-delay verbose]}]
   [["/host" {:middleware [(make-host-signature-authenticator verbose host-authenticator host-mapper metrics-registry)
                           (make-timing-validator max-delay)]}
@@ -477,82 +481,57 @@
                 :get {:handler (get-host-batch data-store)}}]]]])
 
 (defn- api-domain-routes
-  "Build the /domain/:domain route subtree (challenges, challenge, host) for
-  one API version, given that version's authenticators.
+  "Build the /domain/:domain route subtree (challenges, challenge, host).
 
-  The host and challenge halves of an API version are mounted independently,
-  each only when an authenticator for it was configured. A deployment can
-  migrate its hosts and its challenge clients to public keys at different
-  times, so /api/v3 routinely runs with only one of the two available; the
-  half with no authenticator is simply absent, and 404s, rather than being
-  mounted around a nil authenticator that would throw on the first request."
+  The host and challenge halves are mounted independently, each only when
+  an authenticator for it was configured; the half with no authenticator is
+  absent and 404s, rather than being mounted around a nil authenticator that
+  would throw on the first request."
   [{:keys [host-authenticator challenge-authenticator] :as opts}]
   (into ["/domain/:domain"]
         (concat (when challenge-authenticator (challenge-routes opts))
                 (when host-authenticator      (host-routes opts)))))
 
-(defn- api-version-routes
-  "Build the full /<version> route subtree (health, records, domain) for one
-  API version, given that version's authenticators. Different API versions
-  differ only in which authenticator validates the request signature -- the
-  handlers and record shapes are identical."
-  [version {:keys [metrics-registry verbose data-store] :as opts}]
-  [(str "/" version) {:middleware [keywordize-headers
-                                   decode-body
-                                   encode-body
-                                   (log-requests verbose)
-                                   (metrics/time-request metrics-registry)]}
+(defn- api-routes
+  "Build the /v3 route subtree (health, records, domain). Requests are signed
+  with Ed25519; the HMAC-signed /api/v2 is gone."
+  [{:keys [metrics-registry verbose data-store] :as opts}]
+  ["/v3" {:middleware [keywordize-headers
+                       decode-body
+                       encode-body
+                       (log-requests verbose)
+                       (metrics/time-request metrics-registry)]}
    ["/health"  {:get {:handler (fn [_] {:status 200 :body "OK"})}}]
    ["/records" {:get {:handler (list-records data-store)}}]
    (api-domain-routes opts)])
 
 (defn create-app
-  "Create the Nexus server app with the given configuration.
+  "Create the Nexus server app.
 
-  host-authenticator/challenge-authenticator authenticate requests to the
-  legacy HMAC-signed /api/v2 API.
-
-  host-authenticator-v3/challenge-authenticator-v3 authenticate requests to
-  the Ed25519-signed /api/v3 API. When either is provided, /api/v3 is mounted
-  alongside /api/v2, so already-migrated and not-yet-migrated clients can both
-  be served during the migration window.
-
-  Within a version, the host and challenge APIs are mounted independently:
-  whichever authenticators are given decide which routes exist. Hosts and
-  challenge clients therefore migrate on their own schedules, and a fully
-  migrated deployment can drop its HMAC key files entirely, leaving only
-  /api/v3 mounted."
+  host-authenticator and challenge-authenticator hold the Ed25519 public
+  keys of hosts and of challenge clients. Either may be left out, and its
+  routes are then not mounted, but not both."
   [& {:keys [host-authenticator
              challenge-authenticator
-             host-authenticator-v3
-             challenge-authenticator-v3
              data-store
              max-delay
              verbose
              host-mapper]
       :or   {max-delay 60
              verbose   false}}]
-  (when-not (or host-authenticator challenge-authenticator
-                host-authenticator-v3 challenge-authenticator-v3)
+  (when-not (or host-authenticator challenge-authenticator)
     (throw (ex-info "no authenticators configured: the server would expose no API at all" {})))
-  (let [metrics-registry (metrics/initialize-metrics)
-        base-opts {:data-store       data-store
-                   :host-mapper      host-mapper
-                   :metrics-registry metrics-registry
-                   :max-delay        max-delay
-                   :verbose          verbose}
-        v2-routes (when (or host-authenticator challenge-authenticator)
-                    (api-version-routes "v2" (assoc base-opts
-                                                     :host-authenticator      host-authenticator
-                                                     :challenge-authenticator challenge-authenticator)))
-        v3-routes (when (or host-authenticator-v3 challenge-authenticator-v3)
-                    (api-version-routes "v3" (assoc base-opts
-                                                     :host-authenticator      host-authenticator-v3
-                                                     :challenge-authenticator challenge-authenticator-v3)))]
+  (let [metrics-registry (metrics/initialize-metrics)]
     (log/setup-logging! {:verbose verbose})
     (log/info! {:event "server-starting"})
     (ring/ring-handler
      (ring/router [["/" {:get {:handler (serve-web-ui)}}]
                    ["/metrics" {:get {:handler (serve-metrics metrics-registry)}}]
-                   (into ["/api"] (remove nil? [v2-routes v3-routes]))])
+                   ["/api" (api-routes {:host-authenticator      host-authenticator
+                                        :challenge-authenticator challenge-authenticator
+                                        :data-store              data-store
+                                        :host-mapper             host-mapper
+                                        :metrics-registry        metrics-registry
+                                        :max-delay               max-delay
+                                        :verbose                 verbose})]])
      (ring/create-default-handler))))

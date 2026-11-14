@@ -37,7 +37,7 @@ The web UI provides a browser-based interface to view and filter DNS records sto
 The web UI consumes the following API endpoint:
 
 ```
-GET /api/v2/records
+GET /api/v3/records
 ```
 
 **Response Format:**
@@ -244,7 +244,7 @@ proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
 
 ### API Endpoint
 
-- `/api/v2/records` requires no authentication
+- `/api/v3/records` requires no authentication
 - Returns all DNS records in the database
 - Should be protected if DNS data is sensitive
 - Consider adding authentication middleware if needed
@@ -261,7 +261,7 @@ ls resources/web-ui.html
 tail -f /var/log/nexus-server.log
 
 # Test API endpoint directly
-curl http://localhost:7065/api/v2/records
+curl http://localhost:7065/api/v3/records
 ```
 
 ### Metrics not appearing

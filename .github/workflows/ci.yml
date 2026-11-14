@@ -45,9 +45,6 @@ jobs:
       - name: Build nexus-keygen
         run: nix build .#nexus-keygen --print-build-logs
 
-      - name: Build nexus-client  
-        run: nix build .#nexus-client --print-build-logs
-
       - name: Build nexus-server
         run: nix build .#nexus-server --print-build-logs
 

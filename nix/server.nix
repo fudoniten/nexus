@@ -12,10 +12,8 @@ let
   host-alias-map = pkgs.writeText "nexus-host-alias-map.json"
     (builtins.toJSON cfg.client-alias-map);
 
-  # Unlike host-keys/challenge-keys above, these are Ed25519 public keys --
-  # not secret, so they need no LoadCredential/secret-file handling, just a
-  # plain Nix store path built directly from the (committable-in-plaintext)
-  # config value, the same way host-alias-map is.
+  # Public keys, not secrets, so they go straight into the Nix store the
+  # same way host-alias-map does.
   host-public-keys-json = pkgs.writeText "nexus-host-public-keys.json"
     (builtins.toJSON cfg.host-public-keys);
 
@@ -23,24 +21,34 @@ let
     pkgs.writeText "nexus-challenge-public-keys.json"
     (builtins.toJSON cfg.challenge-public-keys);
 
-  # The secret files the unit must wait for before starting. The HMAC key
-  # files are only present while clients of that kind are still on /api/v2;
-  # a fully migrated deployment has neither, and waiting on a path that will
-  # never appear would hang the unit until its start timeout.
-  secret-files = [ cfg.database.password-file ]
-    ++ (optional (cfg.client-keys-file != null) cfg.client-keys-file)
-    ++ (optional (cfg.challenge-keys-file != null) cfg.challenge-keys-file);
+  # A host alias is a name the host publishes its own A/AAAA under. A
+  # domain alias (nexus.domains.<d>.aliases) or a CNAME in the domain's
+  # static records is a CNAME. One name cannot be both: PowerDNS refuses the
+  # second write, and before it did, the zone ended up holding both and the
+  # secondaries refused every transfer. Catch it here, where the two
+  # definitions meet, rather than as a 409 at runtime.
+  cnameNames = domain:
+    let domainCfg = config.nexus.domains.${domain} or null;
+    in if domainCfg == null then
+      [ ]
+    else
+      (attrNames domainCfg.aliases)
+      ++ (map (record: removeSuffix ".${domain}" record.name)
+        (filter (record: record.type == "CNAME")
+          domainCfg.records));
 
-  secrets-present =
-    concatStringsSep " && " (map (f: "[ -f ${f} ]") secret-files);
+  aliasConflicts = concatLists (mapAttrsToList (host: domainAliases:
+    concatMap ({ domain, aliases }:
+      map (alias: "${alias}.${domain} (alias of ${host})")
+      (filter (alias: elem alias (cnameNames domain)) aliases))
+    domainAliases) cfg.client-alias-map);
 
 in {
   imports = [ ./options.nix ];
 
   config = mkIf cfg.enable {
-    # Each API needs at least one kind of key. Catching this here gives a
-    # build-time error naming the option to set, rather than a server that
-    # fails to start on the target host.
+    # Caught at build time, naming the option to fix, rather than as a
+    # server that fails to start (or refuses every update) on the host.
     assertions = [
       {
         assertion = dns-cfg.enable;
@@ -50,19 +58,22 @@ in {
         '';
       }
       {
-        assertion = cfg.client-keys-file != null || cfg.host-public-keys != { };
-        message = ''
-          nexus.server: set client-keys-file (legacy HMAC, /api/v2) or
-          host-public-keys (Ed25519, /api/v3), or both while hosts migrate.
-        '';
+        assertion = cfg.host-public-keys != { };
+        message = "nexus.server: host-public-keys must name at least one host.";
       }
       {
-        assertion = cfg.challenge-keys-file != null
-          || cfg.challenge-public-keys != { };
+        assertion = cfg.challenge-public-keys != { };
+        message =
+          "nexus.server: challenge-public-keys must name at least one challenge client.";
+      }
+      {
+        assertion = aliasConflicts == [ ];
         message = ''
-          nexus.server: set challenge-keys-file (legacy HMAC, /api/v2) or
-          challenge-public-keys (Ed25519, /api/v3), or both while challenge
-          clients migrate.
+          nexus.server: these names are both a host alias (client-alias-map,
+          published as A/AAAA) and a CNAME (nexus.domains.<domain>.aliases or
+          a CNAME record). A name can be one or the other:
+
+            ${concatStringsSep "\n    " aliasConflicts}
         '';
       }
     ];
@@ -98,20 +109,13 @@ in {
             "--listen-port=${toString cfg.internal-port}"
             "--pdns-api-url=http://127.0.0.1:${toString dns-cfg.api-port}"
             "--pdns-api-key-file=$CREDENTIALS_DIRECTORY/pdns-api.key"
-          ] ++ (optional (cfg.client-keys-file != null)
-            "--host-keys=$CREDENTIALS_DIRECTORY/host-keys.json")
-          ++ (optional (cfg.challenge-keys-file != null)
-            "--challenge-keys=$CREDENTIALS_DIRECTORY/challenge-keys.json")
-          ++ (optional (cfg.host-public-keys != { })
-            "--host-public-keys=${host-public-keys-json}")
-          ++ (optional (cfg.challenge-public-keys != { })
-            "--challenge-public-keys=${challenge-public-keys-json}")
-          ++ (optional cfg.verbose "--verbose")));
+            "--host-public-keys=${host-public-keys-json}"
+            "--challenge-public-keys=${challenge-public-keys-json}"
+          ] ++ (optional cfg.verbose "--verbose")));
 
         ExecStartPre = [
-          # Waits only for the secrets this deployment actually has.
           ("+${pkgs.writeShellScript "nexus-wait-for-secrets.sh" ''
-            until ${secrets-present}; do
+            until [ -f ${cfg.database.password-file} ]; do
               echo "nexus-server: waiting for secret files to appear..."
               sleep 5
             done
@@ -127,11 +131,7 @@ in {
         LoadCredential = [
           "db.passwd:${cfg.database.password-file}"
           "pdns-api.key:${dns-cfg.api-key-file}"
-        ]
-          ++ (optional (cfg.client-keys-file != null)
-            "host-keys.json:${cfg.client-keys-file}")
-          ++ (optional (cfg.challenge-keys-file != null)
-            "challenge-keys.json:${cfg.challenge-keys-file}");
+        ];
         DynamicUser = true;
         # Needs access to network for Postgresql
         PrivateNetwork = false;

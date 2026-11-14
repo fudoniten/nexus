@@ -25,6 +25,7 @@
             [next.jdbc :as jdbc]
             [slingshot.slingshot :refer [throw+]]
             [nexus.datastore :as datastore]
+            [nexus.logging :as log]
             [nexus.sql-datastore :as sql-store])
   (:import [java.net URI]
            [java.net.http HttpClient HttpRequest HttpRequest$BodyPublishers
@@ -188,6 +189,15 @@
         ;; Publish before committing: if PowerDNS refuses, the row rolls
         ;; back with it and the table never claims a record DNS lacks.
         (patch-rrsets! api domain [(challenge-rrset tx domain-id domain hostname)])))
+    ;; The serial the record went out under. When a validation fails, the
+    ;; first question is whether the secondaries had caught up to it yet
+    ;; (dig +short SOA <zone> @<secondary>).
+    (log/info! {:event        "challenge-published"
+                :domain       domain
+                :host         hostname
+                :challenge-id (str challenge-id)
+                :serial       (try (sql-store/get-zone-serial sql domain)
+                                   (catch Exception _ nil))})
     challenge-id))
 
 (defn- deactivate-and-republish!
@@ -247,12 +257,12 @@
     (patch-rrsets! api domain (host-rrsets host domain ttl batch-data))
     batch-data)
 
-  (get-host-ipv4 [_ domain host]   (datastore/get-host-ipv4 sql domain host))
-  (get-host-ipv6 [_ domain host]   (datastore/get-host-ipv6 sql domain host))
-  (get-host-sshfps [_ domain host] (datastore/get-host-sshfps sql domain host))
+  (get-host-ipv4 [_ domain host]   (sql-store/get-host-ipv4 sql domain host))
+  (get-host-ipv6 [_ domain host]   (sql-store/get-host-ipv6 sql domain host))
+  (get-host-sshfps [_ domain host] (sql-store/get-host-sshfps sql domain host))
 
   (get-challenge-records [_ domain]
-    (datastore/get-challenge-records sql domain))
+    (sql-store/get-challenge-records sql domain))
   (create-challenge-record [self domain host challenge-id secret]
     (create-challenge! self domain host challenge-id secret))
   (delete-challenge-record [self domain challenge-id]
@@ -261,7 +271,7 @@
     (expire-challenges! self max-age-seconds))
 
   (list-all-records [_]
-    (datastore/list-all-records sql)))
+    (sql-store/list-all-records sql)))
 
 (defn connect
   "A PdnsDataStore: writes through the PowerDNS API at pdns-api-url, reads

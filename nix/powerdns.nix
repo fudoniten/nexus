@@ -257,8 +257,8 @@ let
   '';
 
   # Per-zone maintenance after the SQL: make API changes raise the serial,
-  # sign the zone (once), rectify, and bump the serial so secondaries pick
-  # up whatever the SQL changed.
+  # sign the zone (once), rectify, bump the serial so secondaries pick up
+  # whatever the SQL changed, then check the zone.
   zoneMaintenance = dir: zone: ''
     if ! ${pdnsutil dir} zone list-keys ${zone} >/dev/null 2>&1; then
       echo "ERROR: zone ${zone} is not in the PowerDNS database" >&2
@@ -290,6 +290,15 @@ let
 
     ${pdnsutil dir} zone rectify ${zone}
     ${pdnsutil dir} zone increase-serial ${zone}
+
+    # The trigger stops new CNAME conflicts, but not one already in the
+    # database, and Knot refuses every transfer of a zone that holds one.
+    # PowerDNS serves such a zone without complaint, so this is the one
+    # place it gets noticed. Every zone is still checked (and the server
+    # still starts); the unit fails at the end, naming them.
+    if ! ${pdnsutil dir} zone check ${zone}; then
+      FAILED_CHECKS="$FAILED_CHECKS ${zone}"
+    fi
   '';
 
   apiKeyDir = dirOf cfg.api-key-file;
@@ -373,7 +382,13 @@ in {
               target-dir = confDir;
               password-file = "$CREDENTIALS_DIRECTORY/db.passwd";
             }}
+            FAILED_CHECKS=""
             ${concatMapStringsSep "\n" (zoneMaintenance confDir) zones}
+            if [ -n "$FAILED_CHECKS" ]; then
+              echo "ERROR: pdnsutil zone check found errors in:$FAILED_CHECKS" >&2
+              echo "Secondaries will refuse these zones until they are fixed." >&2
+              exit 1
+            fi
           '';
         };
 
