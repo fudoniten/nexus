@@ -63,6 +63,20 @@ let
         default = [ ];
       };
 
+      allowed-networks = mkOption {
+        type = listOf str;
+        description = ''
+          CIDR blocks a host may publish its addresses from in this domain.
+          The server refuses (403, or 400 for a batch) an update carrying an
+          address outside all of them. Empty means any address is accepted.
+
+          For a Tailscale-only domain:
+          [ "100.64.0.0/10" "fd7a:115c:a1e0::/48" ].
+        '';
+        default = [ ];
+        example = [ "100.64.0.0/10" "fd7a:115c:a1e0::/48" ];
+      };
+
       nameservers = let
         nameserverOpts = { name, ... }: {
           options = {

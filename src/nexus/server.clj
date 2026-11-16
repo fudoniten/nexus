@@ -9,6 +9,7 @@
             [nexus.authenticator :as auth]
             [nexus.datastore :as store]
             [nexus.host-alias-map :as host-map]
+            [nexus.network :as network]
             [slingshot.slingshot :refer [try+]]
             [fudo-clojure.ip :as ip]
             [fudo-clojure.common :refer [current-epoch-timestamp]]))
@@ -30,18 +31,36 @@
      {:status 500
       :body "Internal server error"})))
 
+(defn- network-refusal
+  "The error message for an address outside the networks the domain is
+  restricted to, or nil if the address is allowed."
+  [restrictions domain ip]
+  (when-not (network/allowed? restrictions domain ip)
+    (format "%s is outside the networks allowed for %s: %s"
+            ip domain (str/join ", " (network/allowed-networks restrictions domain)))))
+
 (defn- set-host-ip
   "Handler for setting a host's IPv4 or IPv6 address record"
-  [store metrics-registry {:keys [family valid? write! counter event]}]
+  [store metrics-registry restrictions {:keys [family valid? write! counter event]}]
   (fn [{:keys [payload]
        {:keys [host domain]} :path-params}]
     (store-write event {:domain domain :host host :ip (str payload)}
                  (fn []
                    (try
-                     (let [ip (ip/from-string payload)]
-                       (if (not (valid? ip))
+                     (let [ip (ip/from-string payload)
+                           refusal (network-refusal restrictions domain ip)]
+                       (cond
+                         (not (valid? ip))
                          {:status 400
                           :body (format "rejected: not a %s IP: %s" family payload)}
+
+                         refusal
+                         (do (log/warn! {:event (str event "-network-refused")
+                                         :domain domain :host host :ip (str ip)})
+                             (metrics/inc-counter! metrics-registry :network-rejections)
+                             {:status 403 :body (str "rejected: " refusal)})
+
+                         :else
                          (do (write! store domain host ip)
                              (metrics/inc-counter! metrics-registry counter)
                              {:status 200 :body (str ip)})))
@@ -51,16 +70,16 @@
 
 (defn- set-host-ipv4
   "Handler for setting a host's IPv4 address record"
-  [store metrics-registry]
-  (set-host-ip store metrics-registry {:family "v4" :valid? ip/ipv4?
+  [store metrics-registry restrictions]
+  (set-host-ip store metrics-registry restrictions {:family "v4" :valid? ip/ipv4?
                                        :write! store/set-host-ipv4
                                        :counter :ipv4-updates
                                        :event "set-host-ipv4"}))
 
 (defn- set-host-ipv6
   "Handler for setting a host's IPv6 address record"
-  [store metrics-registry]
-  (set-host-ip store metrics-registry {:family "v6" :valid? ip/ipv6?
+  [store metrics-registry restrictions]
+  (set-host-ip store metrics-registry restrictions {:family "v6" :valid? ip/ipv6?
                                        :write! store/set-host-ipv6
                                        :counter :ipv6-updates
                                        :event "set-host-ipv6"}))
@@ -160,15 +179,23 @@
        {:status 500 :body "Internal server error"}))))
 
 (defn- validate-batch
-  "Validate a batch payload. Returns [errors data], data holding parsed IPs."
-  [payload]
+  "Validate a batch payload. Returns [errors data], data holding parsed IPs.
+  An address outside the networks the domain is restricted to is an error,
+  so a batch carrying one is refused whole rather than half-applied."
+  [payload restrictions domain]
   (let [parse-ip (fn [k family valid?]
                    (when-let [s (get payload k)]
                      (try
                        (let [ip (ip/from-string s)]
-                         (if (valid? ip)
-                           [nil [k ip]]
-                           [(format "not a valid %s: %s" family s)]))
+                         (cond
+                           (not (valid? ip))
+                           [(format "not a valid %s: %s" family s)]
+
+                           (network-refusal restrictions domain ip)
+                           [(network-refusal restrictions domain ip)]
+
+                           :else
+                           [nil [k ip]]))
                        (catch IllegalArgumentException _
                          [(format "failed to parse %s: %s" family s)]))))
         sshfps   (when-let [s (:sshfps payload)]
@@ -186,13 +213,13 @@
   "Handler for setting a host's full record state in one change. The payload
   is the whole state: a record type it leaves out is removed from the host,
   so an address the host no longer has does not linger in DNS."
-  [store metrics-registry]
+  [store metrics-registry restrictions]
   (fn [{:keys [payload]
        {:keys [host domain]} :path-params}]
     (store-write "set-host-batch" {:domain domain :host host :payload payload}
                  (fn []
                    (let [[errors data] (if (map? payload)
-                                         (validate-batch payload)
+                                         (validate-batch payload restrictions domain)
                                          [["batch payload must be a JSON object"] {}])]
                      (cond
                        (seq errors)
@@ -467,17 +494,18 @@
 
 (defn- host-routes
   "Build the host-record routes (/host)."
-  [{:keys [host-authenticator data-store host-mapper metrics-registry max-delay verbose]}]
+  [{:keys [host-authenticator data-store host-mapper metrics-registry max-delay verbose
+           network-restrictions]}]
   [["/host" {:middleware [(make-host-signature-authenticator verbose host-authenticator host-mapper metrics-registry)
                           (make-timing-validator max-delay)]}
     ["/:host"
-     ["/ipv4"   {:put {:handler (set-host-ipv4 data-store metrics-registry)}
+     ["/ipv4"   {:put {:handler (set-host-ipv4 data-store metrics-registry network-restrictions)}
                  :get {:handler (get-host-ipv4 data-store)}}]
-     ["/ipv6"   {:put {:handler (set-host-ipv6 data-store metrics-registry)}
+     ["/ipv6"   {:put {:handler (set-host-ipv6 data-store metrics-registry network-restrictions)}
                  :get {:handler (get-host-ipv6 data-store)}}]
      ["/sshfps" {:put {:handler (set-host-sshfps data-store metrics-registry)}
                  :get {:handler (get-host-sshfps data-store)}}]
-     ["/batch"  {:put {:handler (set-host-batch data-store metrics-registry)}
+     ["/batch"  {:put {:handler (set-host-batch data-store metrics-registry network-restrictions)}
                 :get {:handler (get-host-batch data-store)}}]]]])
 
 (defn- api-domain-routes
@@ -510,15 +538,21 @@
 
   host-authenticator and challenge-authenticator hold the Ed25519 public
   keys of hosts and of challenge clients. Either may be left out, and its
-  routes are then not mounted, but not both."
+  routes are then not mounted, but not both.
+
+  network-restrictions (from nexus.network/make-restrictions) limits the
+  addresses a host may publish in a domain; a domain it does not name is
+  unrestricted."
   [& {:keys [host-authenticator
              challenge-authenticator
              data-store
              max-delay
              verbose
-             host-mapper]
+             host-mapper
+             network-restrictions]
       :or   {max-delay 60
-             verbose   false}}]
+             verbose   false
+             network-restrictions {}}}]
   (when-not (or host-authenticator challenge-authenticator)
     (throw (ex-info "no authenticators configured: the server would expose no API at all" {})))
   (let [metrics-registry (metrics/initialize-metrics)]
@@ -531,6 +565,7 @@
                                         :challenge-authenticator challenge-authenticator
                                         :data-store              data-store
                                         :host-mapper             host-mapper
+                                        :network-restrictions    network-restrictions
                                         :metrics-registry        metrics-registry
                                         :max-delay               max-delay
                                         :verbose                 verbose})]])

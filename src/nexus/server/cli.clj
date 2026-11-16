@@ -7,6 +7,7 @@
             [nexus.datastore :as store]
             [nexus.authenticator :as auth]
             [nexus.host-alias-map :as host-mapper]
+            [nexus.network :as network]
             [nexus.metrics :as metrics]
             [ring.adapter.jetty :refer [run-jetty]]
             [clojure.core.async :refer [chan >!! <!!]]
@@ -26,6 +27,9 @@
 
    ["-M" "--host-alias-map HOST_ALIAS_MAP"
     "File containing host to domain/alias mapping, in json format."]
+
+   [nil "--domain-allowed-networks FILE"
+    "File mapping domain to the CIDR blocks hosts may publish addresses from, in json format, e.g. {\"fudo.ninja\": [\"100.64.0.0/10\", \"fd7a:115c:a1e0::/48\"]}. A domain not listed accepts any address."]
 
    ["-D" "--database DATABASE"
     "Database name of the PowerDNS database."]
@@ -112,7 +116,8 @@
   "Check that every file option names a file that exists."
   [options]
   (let [file-options [:host-public-keys :challenge-public-keys
-                      :host-alias-map :pdns-api-key-file]
+                      :host-alias-map :pdns-api-key-file
+                      :domain-allowed-networks]
         errors (for [k file-options
                      :let [f (get options k)]
                      :when (and f (not (file-exists? f)))]
@@ -123,14 +128,21 @@
 
 (defn initialize-app
   "Initialize the application components"
-  [{:keys [host-alias-map host-public-keys challenge-public-keys verbose] :as config}]
-  (let [store (pdns-store/connect config)]
+  [{:keys [host-alias-map host-public-keys challenge-public-keys
+           domain-allowed-networks verbose] :as config}]
+  ;; Read before connecting, so a bad CIDR fails fast with nothing to undo.
+  (let [restrictions (network/read-restrictions domain-allowed-networks)
+        store        (pdns-store/connect config)]
+    (doseq [[domain blocks] restrictions]
+      (println (format "%s: accepting host addresses only from %s"
+                       domain (str/join ", " (map :cidr blocks)))))
     {:store store
      :app
      (server/create-app :host-authenticator      (auth/initialize-pubkey-collection host-public-keys verbose)
                         :challenge-authenticator (auth/initialize-pubkey-collection challenge-public-keys verbose)
                         :data-store              store
                         :host-mapper             (host-mapper/make-mapper host-alias-map)
+                        :network-restrictions    restrictions
                         :verbose                 verbose)}))
 
 (defn start-challenge-expiry!

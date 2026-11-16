@@ -85,7 +85,8 @@ in {
                   ${optionalString cfg.ipv4 "--ipv4"} \
                   ${optionalString cfg.ipv6 "--ipv6"} \
                   ${optionalString (type == "private") "--private"} \
-                  ${optionalString (type == "tailscale") "--tailscale"} \
+                  ${optionalString (type == "tailscale")
+                  "--tailscale --tailscale-interface=${config.services.tailscale.interfaceName}"} \
                   --state-file=$CACHE_DIRECTORY/state.edn \
                   ${aliasFlags} \
                   ${sshfpFlags} \
