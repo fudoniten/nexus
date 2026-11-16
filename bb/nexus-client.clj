@@ -16,29 +16,38 @@
 
 ;; --- IP Detection ---
 
-(defn get-all-ips
-  "Get all IP addresses from all network interfaces using ip addr command"
+(defn parse-ip-addr-line
+  "Parse one line of `ip -o addr` output into {:iface :ip}, or nil. A line
+  looks like
+    4: tailscale0    inet 100.101.102.103/32 scope global tailscale0\\ ...
+  The interface may carry a peer suffix (veth0@if5), which is dropped."
+  [line]
+  (let [[_ iface family addr] (str/split (str/trim line) #"\s+")]
+    (when (and iface addr (#{"inet" "inet6"} family))
+      {:iface (-> iface (str/replace #":$" "") (str/split #"@") first)
+       :ip    (first (str/split addr #"/"))})))
+
+(defn get-all-addresses
+  "Every address on every interface, as {:iface :ip} maps, from `ip -o addr`."
   []
   (try
-    (let [result (process/shell {:out :string :err :string :continue true} "ip" "addr")]
+    (let [result (process/shell {:out :string :err :string :continue true} "ip" "-o" "addr")]
       (if (zero? (:exit result))
         (->> (:out result)
              str/split-lines
-             (keep (fn [line]
-                     (let [line (str/trim line)]
-                       (cond
-                         (str/starts-with? line "inet ")
-                         (second (re-find #"inet ([0-9\.]+)" line))
-                         (str/starts-with? line "inet6 ")
-                         (second (re-find #"inet6 ([0-9a-f:]+)" line))))))
-             (remove nil?))
-        (throw (ex-info (str "'ip addr' failed with exit code " (:exit result))
+             (keep parse-ip-addr-line))
+        (throw (ex-info (str "'ip -o addr' failed with exit code " (:exit result))
                         {:exit (:exit result) :stderr (:err result)}))))
     (catch clojure.lang.ExceptionInfo e
       (throw e))
     (catch Exception e
-      (throw (ex-info (str "Failed to run 'ip addr': " (.getMessage e))
+      (throw (ex-info (str "Failed to run 'ip -o addr': " (.getMessage e))
                       {:cause e})))))
+
+(defn get-all-ips
+  "Get all IP addresses from all network interfaces."
+  []
+  (map :ip (get-all-addresses)))
 
 (defn ipv4?
   "Check if IP string is IPv4"
@@ -56,9 +65,9 @@
 ;; reserved ranges (loopback, link-local, RFC1918, multicast, ...) rather
 ;; than matching address strings by hand -- string matching misses
 ;; equivalent spellings like the fully-expanded ::1 (0:0:0:0:0:0:0:1) and
-;; is easy to get subtly wrong at range boundaries. The two ranges
-;; InetAddress does not recognize -- IPv6 ULA (fc00::/7) and Tailscale's
-;; CGNAT block (100.64.0.0/10, RFC 6598) -- are handled with an explicit
+;; is easy to get subtly wrong at range boundaries. The ranges InetAddress
+;; does not recognize -- IPv6 ULA (fc00::/7) and Tailscale's two blocks
+;; (100.64.0.0/10 and fd7a:115c:a1e0::/48) -- are handled with an explicit
 ;; CIDR check.
 ;;
 ;; NOTE: the isXxxAddress/getAddress methods are called on values
@@ -111,20 +120,39 @@
         (.isMulticastAddress addr))
     true))
 
+(defn tailscale?
+  "True for Tailscale's address ranges: 100.64.0.0/10 (the RFC 6598 CGNAT
+   block) for IPv4 and fd7a:115c:a1e0::/48 for IPv6.
+
+   The range alone does not prove an address is Tailscale's: other overlays
+   (Nebula, say) can be numbered out of the same CGNAT block. Tailscale mode
+   therefore also checks the interface; see tailscale-address?."
+  [ip-str]
+  (or (in-cidr? ip-str "100.64.0.0" 10)
+      (in-cidr? ip-str "fd7a:115c:a1e0::" 48)))
+
 (defn private?
   "True for private-network addresses suitable for a private domain: RFC1918
-   (10/8, 172.16/12, 192.168/16) and IPv6 ULA (fc00::/7). InetAddress covers
-   RFC1918 via isSiteLocalAddress but not ULA, so ULA is matched explicitly."
+   (10/8, 172.16/12, 192.168/16) and IPv6 ULA (fc00::/7), less Tailscale's
+   IPv6 block, which sits inside the ULA range but belongs to Tailscale
+   mode. InetAddress covers RFC1918 via isSiteLocalAddress but not ULA, so
+   ULA is matched explicitly."
   [ip-str]
   (if-let [^InetAddress addr (parse-ip ip-str)]
-    (or (.isSiteLocalAddress addr)
-        (in-cidr? ip-str "fc00::" 7))
+    (and (or (.isSiteLocalAddress addr)
+             (in-cidr? ip-str "fc00::" 7))
+         (not (tailscale? ip-str)))
     false))
 
-(defn tailscale?
-  "True for Tailscale's CGNAT range, 100.64.0.0/10 (RFC 6598)."
-  [ip-str]
-  (in-cidr? ip-str "100.64.0.0" 10))
+(defn tailscale-address?
+  "True for an {:iface :ip} that is a Tailscale address: in Tailscale's
+   ranges and, when tailscale-iface is non-blank, on that interface. The
+   interface check is what keeps a Nebula (or other overlay) address in
+   100.64.0.0/10 out of a Tailscale-only domain."
+  [tailscale-iface {:keys [iface ip]}]
+  (and (tailscale? ip)
+       (or (str/blank? tailscale-iface)
+           (= iface tailscale-iface))))
 
 (defn public?
   "True only for globally routable addresses: not reserved, not a
@@ -158,17 +186,14 @@
        (filter private?)
        first))
 
-(defn get-tailscale-ipv4 []
-  (->> (get-all-ips)
-       (filter ipv4?)
-       (filter tailscale?)
-       first))
-
-(defn get-tailscale-ipv6 []
-  (->> (get-all-ips)
-       (filter ipv6?)
-       (filter tailscale?)
-       first))
+(defn get-tailscale-ips
+  "[ipv4 ipv6]: this host's first Tailscale address of each family."
+  [tailscale-iface]
+  (let [ips (->> (get-all-addresses)
+                 (filter (partial tailscale-address? tailscale-iface))
+                 (map :ip))]
+    [(first (filter ipv4? ips))
+     (first (filter ipv6? ips))]))
 
 ;; --- Signature: Ed25519 (/api/v3) ---
 
@@ -295,14 +320,10 @@
   "Get the current IP addresses and SSHFPs"
   [opts]
   (let [ip-type (:ip-type opts)
-        v4 (case ip-type
-             :public (get-public-ipv4)
-             :private (get-private-ipv4)
-             :tailscale (get-tailscale-ipv4))
-        v6 (case ip-type
-             :public (get-public-ipv6)
-             :private (get-private-ipv6)
-             :tailscale (get-tailscale-ipv6))
+        [v4 v6] (case ip-type
+                  :public    [(get-public-ipv4) (get-public-ipv6)]
+                  :private   [(get-private-ipv4) (get-private-ipv6)]
+                  :tailscale (get-tailscale-ips (:tailscale-interface opts)))
         sshfps (load-sshfps (:sshfp-files opts))]
     (cond-> {}
       (and (:ipv4 opts) v4) (assoc :ipv4 v4)
@@ -411,6 +432,8 @@
    :tailscale {:desc "Report Tailscale IPs"
                :default false
                :coerce :boolean}
+   :tailscale-interface {:desc "With --tailscale, report only addresses on this interface (blank: any interface)"
+                         :default "tailscale0"}
    :private {:desc "Report private IPs"
              :default false
              :coerce :boolean}

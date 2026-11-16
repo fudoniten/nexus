@@ -17,6 +17,15 @@ let
   host-public-keys-json = pkgs.writeText "nexus-host-public-keys.json"
     (builtins.toJSON cfg.host-public-keys);
 
+  # Only restricted domains are listed; the server treats any other domain
+  # as accepting every address.
+  domain-allowed-networks-json =
+    pkgs.writeText "nexus-domain-allowed-networks.json" (builtins.toJSON
+      (listToAttrs (map (domainCfg:
+        nameValuePair domainCfg.domain-name domainCfg.allowed-networks)
+        (filter (domainCfg: domainCfg.allowed-networks != [ ])
+          (attrValues config.nexus.domains)))));
+
   challenge-public-keys-json =
     pkgs.writeText "nexus-challenge-public-keys.json"
     (builtins.toJSON cfg.challenge-public-keys);
@@ -111,6 +120,7 @@ in {
             "--pdns-api-key-file=$CREDENTIALS_DIRECTORY/pdns-api.key"
             "--host-public-keys=${host-public-keys-json}"
             "--challenge-public-keys=${challenge-public-keys-json}"
+            "--domain-allowed-networks=${domain-allowed-networks-json}"
           ] ++ (optional cfg.verbose "--verbose")));
 
         ExecStartPre = [

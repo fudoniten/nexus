@@ -2,6 +2,7 @@
   (:require [nexus.server :as srv]
             [nexus.datastore :as ds]
             [nexus.host-alias-map :as mapper]
+            [nexus.network :as network]
             [clojure.test :as t :refer [deftest is testing run-tests]]
             [ring.mock.request :as ring]
             [clojure.string :as str]
@@ -374,6 +375,37 @@
                         (sign-request (:host0 host-keys))))]
       (is (= 400 (:status resp)))
       (is (nil? @written)))))
+
+;; --- per-domain network restrictions ---
+
+(deftest addresses-outside-allowed-networks-are-refused
+  (let [written   (atom [])
+        host-keys {:host0 (gen-key)}
+        app (srv/create-app :host-authenticator (make-authenticator host-keys false)
+                            :data-store  (reify ds/IDataStore
+                                           (set-host-ipv4 [_ d _ ip] (swap! written conj [d ip]) ip)
+                                           (set-host-ipv6 [_ d _ ip] (swap! written conj [d ip]) ip)
+                                           (set-host-batch [_ d _ data] (swap! written conj [d data]) data))
+                            :host-mapper (reify mapper/IHostAliasMap
+                                           (get-host [_ host _] (keyword host)))
+                            :network-restrictions
+                            (network/make-restrictions
+                             {"fudo.ninja" ["100.64.0.0/10" "fd7a:115c:a1e0::/48"]})
+                            :max-delay   5)
+        put (fn [domain kind body]
+              (:status (app (-> (ring/request :put (format "/api/v3/domain/%s/host/host0/%s" domain kind))
+                                (ring/body (json/write-str body))
+                                (sign-request (:host0 host-keys))))))]
+    (testing "a non-Tailscale address is refused for the restricted domain"
+      (is (= 403 (put "fudo.ninja" "ipv4" "10.0.0.5")))
+      (is (= 403 (put "fudo.ninja" "ipv6" "fd00::5")))
+      (is (= 400 (put "fudo.ninja" "batch" {:ipv4 "100.101.2.3" :ipv6 "2001:db8::1"})))
+      (is (empty? @written)))
+    (testing "a Tailscale address is accepted for the restricted domain"
+      (is (= 200 (put "fudo.ninja" "ipv4" "100.101.2.3")))
+      (is (= 200 (put "fudo.ninja" "batch" {:ipv4 "100.101.2.3" :ipv6 "fd7a:115c:a1e0::1"}))))
+    (testing "other domains are unrestricted"
+      (is (= 200 (put "fudo.dev" "ipv4" "10.0.0.5"))))))
 
 ;; --- /api/v3: public-key (Ed25519) authenticated API ---
 

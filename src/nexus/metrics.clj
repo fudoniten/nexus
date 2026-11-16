@@ -21,7 +21,8 @@
                  :batch-updates (counters/counter registry "batch_updates_total")
                  :challenge-creates (counters/counter registry "challenge_creates_total")
                  :challenge-deletes (counters/counter registry "challenge_deletes_total")
-                 :auth-failures (counters/counter registry "auth_failures_total")}
+                 :auth-failures (counters/counter registry "auth_failures_total")
+                 :network-rejections (counters/counter registry "network_rejections_total")}
      ::meters {:request-rate (meters/meter registry "request_rate")}
      ::unique-ips (atom #{})
      }))
