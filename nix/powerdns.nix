@@ -136,9 +136,21 @@ let
   # The trigger that counted changes in domains.notified_serial. PowerDNS
   # owns that column (it records the serial it last sent NOTIFY for, and
   # resets it about once a minute), so the count was never reliable.
+  #
+  # Dropping it is cleanup, not something the rest of the run needs, so a
+  # role that does not own the trigger or function (on an older database
+  # they were created by hand, as another role) only gets a warning. Before
+  # this, the "must be owner" error rolled back the whole run and the
+  # unit failed on every boot.
   dropSerialTriggerSql = ''
-    DROP TRIGGER IF EXISTS update_serial_on_change_trigger ON records;
-    DROP FUNCTION IF EXISTS update_zone_serial_on_change();
+    DO $do$
+    BEGIN
+      DROP TRIGGER IF EXISTS update_serial_on_change_trigger ON records;
+      DROP FUNCTION IF EXISTS update_zone_serial_on_change();
+    EXCEPTION WHEN insufficient_privilege THEN
+      RAISE WARNING 'could not drop the legacy serial trigger (%); drop it as its owner: DROP TRIGGER IF EXISTS update_serial_on_change_trigger ON records; DROP FUNCTION IF EXISTS update_zone_serial_on_change();', SQLERRM;
+    END;
+    $do$;
   '';
 
   # Make the rrset name/type hold exactly contents: rows with other content
