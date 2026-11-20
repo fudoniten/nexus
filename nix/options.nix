@@ -250,6 +250,20 @@ in {
         default = 9812;
       };
 
+      record-lifespan = mkOption {
+        type = ints.unsigned;
+        description = ''
+          Days a host's records survive without a report. Records the
+          server wrote (provenance 'server') are removed once they have
+          not been refreshed for this long, so hosts that were turned down
+          drop out of DNS. Clients re-send their state at least daily, so
+          live hosts are never close. Records from the database init
+          ('init') or written by hand ('manual') are never removed. 0
+          disables expiry.
+        '';
+        default = 60;
+      };
+
       hostnames = mkOption {
         type = listOf str;
         description = "Hostnames on which to listen for incoming requests.";

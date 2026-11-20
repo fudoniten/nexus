@@ -11,8 +11,9 @@
 #
 # What is left:
 #   nexus-powerdns-api-key        generates the API key once, root-only
-#   nexus-powerdns-initialize-db  schema, static records from config, zone
-#                                 metadata, DNSSEC keys, rectify, serial bump
+#   nexus-powerdns-initialize-db  schema (with record provenance), static
+#                                 records from config, zone metadata, DNSSEC
+#                                 keys, rectify, serial bump
 #   nexus-powerdns                the server, with the API on 127.0.0.1
 #   nexus-powerdns-weekly-serial  a weekly serial bump, so secondaries pick
 #                                 up PowerDNS's weekly signature rollover
@@ -74,6 +75,44 @@ let
   sqlStr = s: "'${replaceStrings [ "'" ] [ "''" ] s}'";
 
   mkRecord = name: type: content: { inherit name type content; };
+
+  # Where each record came from, and when its writer last vouched for it.
+  #
+  #   provenance    'server' (the Nexus server, for a host that reported),
+  #                 'init' (this unit's static records), or 'manual' (the
+  #                 default: anything else, pdnsutil and psql included).
+  #   refreshed_at  set by the Nexus server whenever a host reports, which
+  #                 a live host does at least daily.
+  #
+  # Only 'server' records expire, once refreshed_at is older than
+  # nexus.server.record-lifespan, so a host that is turned down eventually
+  # drops out of DNS. Rows that exist when the columns are added become
+  # 'manual', and so are never expired: the init SQL below re-tags the ones
+  # config declares as 'init', and a host that reports re-tags its own as
+  # 'server', so what is left 'manual' afterwards is either hand-made or
+  # belongs to a host that no longer reports.
+  #
+  # Adding a column takes the table's owner. On a database whose records
+  # table was created by another role, this stops the run and says what to
+  # run as that owner.
+  provenanceSql = ''
+    DO $do$
+    BEGIN
+      IF NOT EXISTS (SELECT 1 FROM pg_attribute
+                     WHERE attrelid = 'records'::regclass
+                       AND attname = 'provenance' AND NOT attisdropped) THEN
+        ALTER TABLE records ADD COLUMN provenance TEXT NOT NULL DEFAULT 'manual';
+      END IF;
+      IF NOT EXISTS (SELECT 1 FROM pg_attribute
+                     WHERE attrelid = 'records'::regclass
+                       AND attname = 'refreshed_at' AND NOT attisdropped) THEN
+        ALTER TABLE records ADD COLUMN refreshed_at TIMESTAMPTZ NOT NULL DEFAULT NOW();
+      END IF;
+    EXCEPTION WHEN insufficient_privilege THEN
+      RAISE EXCEPTION 'could not add the provenance columns to records (%); add them as its owner: ALTER TABLE records ADD COLUMN IF NOT EXISTS provenance TEXT NOT NULL DEFAULT '''manual''', ADD COLUMN IF NOT EXISTS refreshed_at TIMESTAMPTZ NOT NULL DEFAULT NOW();', SQLERRM;
+    END;
+    $do$;
+  '';
 
   # Refuse a CNAME beside any other data at the same name, whoever writes
   # it: the API already refuses these, but the init SQL and anyone with
@@ -155,9 +194,10 @@ let
 
   # Make the rrset name/type hold exactly contents: rows with other content
   # are removed, missing ones added, and existing ones left alone (so their
-  # ids, ordername and auth survive). Config owns any rrset it declares;
-  # rrsets it does not declare are never touched. A record that would sit
-  # beside a CNAME is skipped with a warning rather than failing the run.
+  # ids, ordername and auth survive) apart from being tagged 'init'. Config
+  # owns any rrset it declares; rrsets it does not declare are never
+  # touched. A record that would sit beside a CNAME is skipped with a
+  # warning rather than failing the run.
   reconcileRrset = domain: { name, type, contents }:
     let
       domainId = "(SELECT id FROM domains WHERE name=${sqlStr domain})";
@@ -166,10 +206,13 @@ let
       DELETE FROM records
         WHERE domain_id=${domainId} AND name=${sqlStr name} AND type=${sqlStr type}
           AND content NOT IN (${contentList});
+      UPDATE records SET provenance = 'init'
+        WHERE domain_id=${domainId} AND name=${sqlStr name} AND type=${sqlStr type}
+          AND provenance <> 'init';
       ${concatMapStringsSep "\n" (content: ''
         BEGIN
-          INSERT INTO records (domain_id, name, type, content, auth)
-            SELECT ${domainId}, ${sqlStr name}, ${sqlStr type}, ${sqlStr content}, TRUE
+          INSERT INTO records (domain_id, name, type, content, auth, provenance)
+            SELECT ${domainId}, ${sqlStr name}, ${sqlStr type}, ${sqlStr content}, TRUE, 'init'
             WHERE NOT EXISTS (SELECT 1 FROM records
                               WHERE domain_id=${domainId} AND name=${sqlStr name}
                                 AND type=${sqlStr type} AND content=${sqlStr content});
@@ -243,9 +286,9 @@ let
       -- change, so writing the build's serial unconditionally (as this used
       -- to) would move it backwards after any change since the last build,
       -- and secondaries ignore a serial lower than the one they hold.
-      INSERT INTO records (domain_id, name, type, content, auth)
+      INSERT INTO records (domain_id, name, type, content, auth, provenance)
         SELECT ${domainId}, ${sqlStr domain-name}, 'SOA',
-               ${sqlStr "${soaPrefix} ${serial} ${soaSuffix}"}, TRUE
+               ${sqlStr "${soaPrefix} ${serial} ${soaSuffix}"}, TRUE, 'init'
         WHERE NOT EXISTS (SELECT 1 FROM records
                           WHERE domain_id=${domainId} AND type='SOA');
       UPDATE records
@@ -263,6 +306,7 @@ let
 
   initSqlFile = pkgs.writeText "nexus-powerdns-init.sql" ''
     ${dropSerialTriggerSql}
+    ${provenanceSql}
     ${cnameGuardSql}
     ${challengeTableSql}
     ${concatMapStringsSep "\n" initializeDomainSql (attrValues config.nexus.domains)}

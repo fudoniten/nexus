@@ -339,11 +339,12 @@
                         <th class="sortable" data-sort="content">Content</th>
                         <th class="sortable" data-sort="ttl">TTL</th>
                         <th class="sortable" data-sort="disabled">Status</th>
+                        <th class="sortable" data-sort="provenance">Source</th>
                     </tr>
                 </thead>
                 <tbody id="recordsBody">
                     <tr>
-                        <td colspan="7" class="loading">Loading records...</td>
+                        <td colspan="8" class="loading">Loading records...</td>
                     </tr>
                 </tbody>
             </table>
@@ -359,7 +360,7 @@
             const recordsBody = document.getElementById('recordsBody');
             
             errorContainer.innerHTML = '';
-            recordsBody.innerHTML = '<tr><td colspan="7" class="loading">Loading records...</td></tr>';
+            recordsBody.innerHTML = '<tr><td colspan="8" class="loading">Loading records...</td></tr>';
             
             try {
                 const response = await fetch('/api/v3/records');
@@ -376,7 +377,7 @@
             } catch (error) {
                 console.error('Error loading records:', error);
                 errorContainer.innerHTML = `<div class="error">Failed to load records: ${error.message}</div>`;
-                recordsBody.innerHTML = '<tr><td colspan="7" class="no-records">Failed to load records</td></tr>';
+                recordsBody.innerHTML = '<tr><td colspan="8" class="no-records">Failed to load records</td></tr>';
             }
         }
         
@@ -454,7 +455,7 @@
             const recordsBody = document.getElementById('recordsBody');
             
             if (records.length === 0) {
-                recordsBody.innerHTML = '<tr><td colspan="7" class="no-records">No records found</td></tr>';
+                recordsBody.innerHTML = '<tr><td colspan="8" class="no-records">No records found</td></tr>';
                 return;
             }
             
@@ -467,6 +468,7 @@
                     <td class="content-cell" title="${record.content}">${record.content}</td>
                     <td>${record.ttl || '-'}</td>
                     <td>${record.disabled ? '🔴 Disabled' : '🟢 Active'}</td>
+                    <td title="${record['refreshed-at'] ? 'last refreshed ' + record['refreshed-at'] : ''}">${record.provenance || '-'}</td>
                 </tr>
             `).join('');
         }

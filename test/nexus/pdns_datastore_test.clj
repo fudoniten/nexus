@@ -1,6 +1,7 @@
 (ns nexus.pdns-datastore-test
   (:require [clojure.test :refer [deftest is testing]]
             [clojure.data.json :as json]
+            [clojure.string :as str]
             [nexus.datastore :as ds]
             [nexus.pdns-datastore :as pdns]
             [slingshot.slingshot :refer [try+]])
@@ -77,3 +78,34 @@
       (fn [api _]
         (is (= :api-error (outcome api)))
         (is (= 502 (:status (ds/error-response {::ds/error :api-error ::ds/message "x"}))))))))
+
+(deftest claiming-marks-only-replaced-rrsets
+  (let [[query & params] (pdns/claim-rrsets-sql
+                          "Test.COM" (pdns/host-rrsets "h1" "test.com" 300
+                                                       {:ipv4 "192.0.2.1"
+                                                        :sshfps ["1 2 ab"]}))]
+    (testing "rows become the server's and are refreshed"
+      (is (str/starts-with? query "UPDATE records SET provenance = ?, refreshed_at = NOW()"))
+      (is (= "server" (first params))))
+    (testing "names are matched as the database stores them, without the trailing dot"
+      (is (some #{"h1.test.com"} params))
+      (is (not-any? #{"h1.test.com."} params)))
+    (testing "the zone is looked up by its lowercased name"
+      (is (some #{"test.com"} params)))
+    (testing "the deleted AAAA is not named; the replaced A and SSHFP are"
+      (is (some #{"A"} params))
+      (is (some #{"SSHFP"} params))
+      (is (not-any? #{"AAAA"} params))))
+  (testing "nothing to claim when every rrset was deleted"
+    (is (nil? (pdns/claim-rrsets-sql "test.com" [(pdns/delete-rrset "h1.test.com." "A")])))))
+
+(deftest stale-rrsets-are-whole-server-rrsets
+  (let [cutoff           (java.sql.Timestamp. 0)
+        [query & params] (pdns/stale-rrsets-sql cutoff)]
+    (is (str/includes? query "GROUP BY"))
+    (is (str/includes? (str/upper-case query) "BOOL_AND"))
+    (is (some #{"server"} params))
+    (is (some #{cutoff} params))
+    (testing "SOA and NS are never candidates"
+      (is (some #{"SOA"} params))
+      (is (some #{"NS"} params)))))
