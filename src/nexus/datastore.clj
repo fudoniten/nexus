@@ -55,6 +55,18 @@
     [_ max-age-seconds]
     "Remove ACME challenge records created more than max-age-seconds ago")
 
+  (expire-server-records
+    [_ cutoff]
+    "Remove the records Nexus itself wrote that have not been refreshed
+     since cutoff (a java.time.Instant): hosts that stopped reporting.
+     Records from the database init or written by hand are never removed.
+     Returns the number of rrsets removed.")
+
+  (last-server-record-refresh
+    [_]
+    "When a record Nexus wrote was last refreshed (a java.time.Instant), or
+     nil if it has written none.")
+
   (list-all-records
     [_]
     "List all DNS records in the database with domain information"))

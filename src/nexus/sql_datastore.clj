@@ -1,7 +1,9 @@
 (ns nexus.sql-datastore
-  "Read-only access to the PowerDNS database. Every write goes through the
+  "Read access to the PowerDNS database. Every DNS change goes through the
   PowerDNS API (nexus.pdns-datastore); these are the plain SELECTs behind the
-  server's GET endpoints, for which the API has no cheaper equivalent."
+  server's GET endpoints, for which the API has no cheaper equivalent. (The
+  one write Nexus makes here, marking the rows it published as its own, is
+  in nexus.pdns-datastore.)"
   (:require [honey.sql :as sql]
             [honey.sql.helpers :refer [select from join where]]
             [next.jdbc :as jdbc]
@@ -86,7 +88,9 @@
                    :records.content
                    :records.ttl
                    :records.prio
-                   :records.disabled)
+                   :records.disabled
+                   :records.provenance
+                   :records.refreshed_at)
            (from :records)
            (join :domains [:= :records.domain_id :domains.id]))
        (fetch! store)
@@ -98,7 +102,11 @@
                :content  (:records/content record)
                :ttl      (:records/ttl record)
                :prio     (:records/prio record)
-               :disabled (:records/disabled record)}))))
+               :disabled (:records/disabled record)
+               :provenance (:records/provenance record)
+               :refreshed-at (some-> ^java.sql.Timestamp (:records/refreshed_at record)
+                                     (.toInstant)
+                                     str)}))))
 
 (defn connect [{:keys [database-user database-password-file database-host database-port database verbose]
                 :or {database-port 5432

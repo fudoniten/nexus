@@ -64,6 +64,12 @@
     :parse-fn #(Integer/parseInt %)
     :default 86400]
 
+   [nil "--record-lifespan DAYS"
+    "Records Nexus wrote for a host are removed once the host has not reported for this many days. 0 never removes them. Records from the database init or written by hand are never removed."
+    :parse-fn #(Integer/parseInt %)
+    :default 60
+    :validate [#(not (neg? %)) "must be 0 or more"]]
+
    ["-h" "--listen-host HOST"
     "Hostname or IP address on which to listen."]
 
@@ -161,6 +167,50 @@
            (println (format "challenge expiry failed: %s" (.getMessage e))))))
      1 60 java.util.concurrent.TimeUnit/MINUTES)))
 
+(defn outage-allowance
+  "How long the server was not refreshing records before this start: the
+  time since a record it wrote was last refreshed, or zero. Hosts cannot
+  report while the server is down, so this is added to the lifespan for
+  the life of the process; otherwise, after a long outage, every host whose
+  next report had not come in yet would be expired at once."
+  [last-refresh now]
+  (if (and last-refresh (.isBefore ^java.time.Instant last-refresh now))
+    (java.time.Duration/between last-refresh now)
+    java.time.Duration/ZERO))
+
+(defn start-record-expiry!
+  "Remove, every hour, the records of hosts that have stopped reporting:
+  those Nexus wrote and has not refreshed for lifespan-days, plus however
+  long the server itself was down. Hosts re-send their state at least once
+  a day, so a live host is never near the cutoff. Does nothing when
+  lifespan-days is 0."
+  [store lifespan-days]
+  (when (pos? lifespan-days)
+    (let [lifespan  (java.time.Duration/ofDays lifespan-days)
+          allowance (outage-allowance
+                     (try (store/last-server-record-refresh store)
+                          (catch Exception e
+                            (println (format "could not read the last record refresh: %s"
+                                             (.getMessage e)))
+                            nil))
+                     (java.time.Instant/now))]
+      (println (format "expiring host records after %d day(s) without a report%s"
+                       lifespan-days
+                       (if (.isZero allowance)
+                         ""
+                         (format ", plus %s for the time the server was down" allowance))))
+      (doto (java.util.concurrent.Executors/newSingleThreadScheduledExecutor)
+        (.scheduleWithFixedDelay
+         (fn []
+           (try
+             (let [cutoff (.minus (java.time.Instant/now) (.plus lifespan allowance))
+                   n      (store/expire-server-records store cutoff)]
+               (when (pos? n)
+                 (println (format "expired %d record set(s) not refreshed since %s" n cutoff))))
+             (catch Throwable e
+               (println (format "record expiry failed: %s" (.getMessage e))))))
+         10 60 java.util.concurrent.TimeUnit/MINUTES)))))
+
 (defn start-server!
   "Start the server and wait for shutdown"
   [app {:keys [listen-port listen-host verbose]}]
@@ -212,4 +262,5 @@
       (let [metrics-registry (metrics/initialize-metrics)
             {:keys [app store]} (initialize-app (assoc config :metrics-registry metrics-registry))]
         (start-challenge-expiry! store (:challenge-max-age config))
+        (start-record-expiry! store (:record-lifespan config))
         (start-server! app config)))))

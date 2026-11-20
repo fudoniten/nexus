@@ -17,12 +17,21 @@
   now holds each challenge's secret. The TXT rrset for a challenge name is
   rebuilt from every active challenge on that name, so two certificates
   validating the same name at once (a wildcard and its apex) never delete
-  each other's record."
+  each other's record.
+
+  Every rrset Nexus writes is then claimed in the database: its rows get
+  provenance 'server' and a fresh refreshed_at (see nexus-powerdns-
+  initialize-db for the columns). A host re-sends its state at least daily,
+  so a server row that has not been refreshed for the record lifespan
+  belongs to a host that has stopped reporting, and expire-server-records!
+  removes it. Rows from the init SQL ('init') or written by hand ('manual',
+  the column default) are never expired."
   (:require [clojure.data.json :as json]
             [clojure.string :as str]
             [honey.sql :as sql]
             [honey.sql.helpers :as h]
             [next.jdbc :as jdbc]
+            [next.jdbc.result-set :as rs]
             [slingshot.slingshot :refer [throw+]]
             [nexus.datastore :as datastore]
             [nexus.logging :as log]
@@ -117,6 +126,116 @@
     (replace-rrset name type ttl contents)
     (delete-rrset name type)))
 
+;; --- Provenance ---
+
+(def server-provenance
+  "The provenance of rows Nexus wrote. The init SQL writes 'init', and the
+  column default, 'manual', covers everything else."
+  "server")
+
+(defn- db-name
+  "A name as the PowerDNS database stores it: no trailing dot."
+  [fqdn]
+  (str/replace fqdn #"\.$" ""))
+
+(defn- zone-id-subquery [domain]
+  {:select [:id] :from [:domains] :where [:= :name (str/lower-case domain)]})
+
+(defn claim-rrsets-sql
+  "The UPDATE that marks the rows of every REPLACEd rrset as written, and
+  just refreshed, by Nexus. nil when nothing was replaced. PowerDNS
+  deletes and re-inserts an rrset's rows on REPLACE, so the new rows start
+  with the column defaults ('manual', now) until this runs."
+  [domain rrsets]
+  (when-let [replaced (seq (filter #(= "REPLACE" (:changetype %)) rrsets))]
+    (sql/format
+     (-> (h/update :records)
+         (h/set {:provenance server-provenance :refreshed_at [:now]})
+         (h/where [:= :domain_id (zone-id-subquery domain)]
+                  (into [:or] (for [{:keys [name type]} replaced]
+                                [:and [:= :name (db-name name)] [:= :type type]])))))))
+
+(defn claim-rrsets!
+  "Run claim-rrsets-sql. The DNS change has already been made by now, so a
+  failure here is logged rather than thrown: the rows just keep the
+  'manual' default, which is never expired."
+  [connectable domain rrsets]
+  (when-let [query (claim-rrsets-sql domain rrsets)]
+    (try
+      (jdbc/execute! connectable query)
+      (catch Exception e
+        (log/warn! {:event  "claim-rrsets-failed"
+                    :domain domain
+                    :names  (distinct (map :name rrsets))
+                    :reason (.getMessage e)})))))
+
+(defn- publish!
+  "Patch rrsets into a zone through the API, then claim them."
+  [{:keys [api sql]} domain rrsets]
+  (patch-rrsets! api domain rrsets)
+  (claim-rrsets! (:datasource sql) domain rrsets)
+  rrsets)
+
+(defn stale-rrsets-sql
+  "The rrsets every row of which Nexus wrote and last refreshed before
+  cutoff (a java.sql.Timestamp). An rrset holding even one row of another
+  provenance is left alone, since deleting goes by whole rrset. SOA and NS
+  are never Nexus's, and the empty non-terminals rectify writes (NULL type)
+  are PowerDNS's own."
+  [cutoff]
+  (sql/format
+   (-> (h/select [:domains.name :domain] [:records.name :name] [:records.type :type])
+       (h/from :records)
+       (h/join :domains [:= :domains.id :records.domain_id])
+       (h/where [:<> :records.type nil]
+                [:not-in :records.type ["SOA" "NS"]])
+       (h/group-by :domains.name :records.name :records.type)
+       (h/having [:bool_and [:and
+                             [:= :records.provenance server-provenance]
+                             [:< :records.refreshed_at cutoff]]])
+       (h/order-by :domains.name :records.name :records.type))))
+
+(defn expire-server-records!
+  "Delete, through the API, every rrset Nexus wrote that has not been
+  refreshed since cutoff (a java.time.Instant). Each zone is one PATCH; a
+  zone that fails is logged and the rest still go. Returns the number of
+  rrsets deleted."
+  [{:keys [api sql]} cutoff]
+  (let [stale (jdbc/execute! (:datasource sql)
+                             (stale-rrsets-sql (java.sql.Timestamp/from cutoff))
+                             {:builder-fn rs/as-unqualified-lower-maps})]
+    (reduce (fn [n [domain rows]]
+              (try
+                (patch-rrsets! api domain
+                               (mapv #(delete-rrset (str (:name %) ".") (:type %)) rows))
+                (doseq [{:keys [name type]} rows]
+                  (log/info! {:event  "server-record-expired"
+                              :domain domain
+                              :name   name
+                              :type   type
+                              :cutoff (str cutoff)}))
+                (+ n (count rows))
+                (catch Exception e
+                  (log/warn! {:event  "server-record-expiry-failed"
+                              :domain domain
+                              :reason (or (::datastore/message (ex-data e))
+                                          (.getMessage e))})
+                  n)))
+            0
+            (group-by :domain stale))))
+
+(defn last-server-refresh
+  "When a row Nexus wrote was last refreshed, as a java.time.Instant, or
+  nil if there are none."
+  [{:keys [sql]}]
+  (some-> (jdbc/execute-one! (:datasource sql)
+                             (sql/format {:select [[[:max :refreshed_at] :last]]
+                                          :from   [:records]
+                                          :where  [:= :provenance server-provenance]})
+                             {:builder-fn rs/as-unqualified-lower-maps})
+          :last
+          (#(.toInstant ^java.sql.Timestamp %))))
+
 ;; --- Host records ---
 
 (defn host-rrsets
@@ -179,16 +298,18 @@
   (let [domain-id (domain-id! sql domain)
         hostname  (str/lower-case host)]
     (locking challenge-lock
-      (jdbc/with-transaction [tx (:datasource sql)]
-        (jdbc/execute! tx (sql/format
-                           (-> (h/insert-into :challenges)
-                               (h/values [{:domain_id    domain-id
-                                           :challenge_id (parse-uuid (str challenge-id))
-                                           :hostname     hostname
-                                           :secret       secret}]))))
-        ;; Publish before committing: if PowerDNS refuses, the row rolls
-        ;; back with it and the table never claims a record DNS lacks.
-        (patch-rrsets! api domain [(challenge-rrset tx domain-id domain hostname)])))
+      (claim-rrsets!
+       (:datasource sql) domain
+       (jdbc/with-transaction [tx (:datasource sql)]
+         (jdbc/execute! tx (sql/format
+                            (-> (h/insert-into :challenges)
+                                (h/values [{:domain_id    domain-id
+                                            :challenge_id (parse-uuid (str challenge-id))
+                                            :hostname     hostname
+                                            :secret       secret}]))))
+         ;; Publish before committing: if PowerDNS refuses, the row rolls
+         ;; back with it and the table never claims a record DNS lacks.
+         (patch-rrsets! api domain [(challenge-rrset tx domain-id domain hostname)]))))
     ;; The serial the record went out under. When a validation fails, the
     ;; first question is whether the secondaries had caught up to it yet
     ;; (dig +short SOA <zone> @<secondary>).
@@ -205,21 +326,29 @@
   TXT rrset of every name they were on. Returns the number deactivated."
   [{:keys [api sql]} where-clause]
   (locking challenge-lock
-    (jdbc/with-transaction [tx (:datasource sql)]
-      (let [rows (jdbc/execute! tx (sql/format
-                                    (-> (h/update :challenges)
-                                        (h/set {:active false})
-                                        (h/where [:= :active true] where-clause)
-                                        (h/returning :domain_id :hostname))))
-            names (distinct (map (juxt :challenges/domain_id :challenges/hostname) rows))]
-        (doseq [[domain-id hostname] names]
-          (let [domain (->> (jdbc/execute! tx (sql/format (-> (h/select :name)
-                                                              (h/from :domains)
-                                                              (h/where [:= :id domain-id]))))
-                            first
-                            :domains/name)]
-            (patch-rrsets! api domain [(challenge-rrset tx domain-id domain hostname)])))
-        (count rows)))))
+    (let [published (atom [])
+          n (jdbc/with-transaction [tx (:datasource sql)]
+              (let [rows  (jdbc/execute! tx (sql/format
+                                             (-> (h/update :challenges)
+                                                 (h/set {:active false})
+                                                 (h/where [:= :active true] where-clause)
+                                                 (h/returning :domain_id :hostname))))
+                    names (distinct (map (juxt :challenges/domain_id :challenges/hostname) rows))]
+                (doseq [[domain-id hostname] names]
+                  (let [domain (->> (jdbc/execute! tx (sql/format (-> (h/select :name)
+                                                                      (h/from :domains)
+                                                                      (h/where [:= :id domain-id]))))
+                                    first
+                                    :domains/name)]
+                    (swap! published conj
+                           [domain (patch-rrsets! api domain
+                                                  [(challenge-rrset tx domain-id domain hostname)])])))
+                (count rows)))]
+      ;; A name with other challenges still active is REPLACEd, not deleted,
+      ;; and its rows are new.
+      (doseq [[domain rrsets] @published]
+        (claim-rrsets! (:datasource sql) domain rrsets))
+      n)))
 
 (defn delete-challenge!
   [{:keys [sql] :as store} domain challenge-id]
@@ -242,19 +371,19 @@
 
   datastore/IDataStore
 
-  (set-host-ipv4 [_ domain host ip]
-    (patch-rrsets! api domain [(replace-rrset (fqdn host domain) "A" ttl [(str ip)])])
+  (set-host-ipv4 [self domain host ip]
+    (publish! self domain [(replace-rrset (fqdn host domain) "A" ttl [(str ip)])])
     ip)
-  (set-host-ipv6 [_ domain host ip]
-    (patch-rrsets! api domain [(replace-rrset (fqdn host domain) "AAAA" ttl [(str ip)])])
+  (set-host-ipv6 [self domain host ip]
+    (publish! self domain [(replace-rrset (fqdn host domain) "AAAA" ttl [(str ip)])])
     ip)
-  (set-host-sshfps [_ domain host sshfps]
-    (patch-rrsets! api domain [(rrset (fqdn host domain) "SSHFP" ttl sshfps)])
+  (set-host-sshfps [self domain host sshfps]
+    (publish! self domain [(rrset (fqdn host domain) "SSHFP" ttl sshfps)])
     sshfps)
-  (set-host-batch [_ domain host batch-data]
+  (set-host-batch [self domain host batch-data]
     (when verbose
       (println (format "batch update for %s.%s: %s" host domain batch-data)))
-    (patch-rrsets! api domain (host-rrsets host domain ttl batch-data))
+    (publish! self domain (host-rrsets host domain ttl batch-data))
     batch-data)
 
   (get-host-ipv4 [_ domain host]   (sql-store/get-host-ipv4 sql domain host))
@@ -269,6 +398,11 @@
     (delete-challenge! self domain challenge-id))
   (expire-challenge-records [self max-age-seconds]
     (expire-challenges! self max-age-seconds))
+
+  (expire-server-records [self cutoff]
+    (expire-server-records! self cutoff))
+  (last-server-record-refresh [self]
+    (last-server-refresh self))
 
   (list-all-records [_]
     (sql-store/list-all-records sql)))

@@ -121,6 +121,7 @@ in {
             "--host-public-keys=${host-public-keys-json}"
             "--challenge-public-keys=${challenge-public-keys-json}"
             "--domain-allowed-networks=${domain-allowed-networks-json}"
+            "--record-lifespan=${toString cfg.record-lifespan}"
           ] ++ (optional cfg.verbose "--verbose")));
 
         ExecStartPre = [

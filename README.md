@@ -122,6 +122,32 @@ Add to your flake inputs:
    any other writer, and a weekly serial bump makes secondaries pick up
    PowerDNS's weekly signature rollover.
 
+### Record provenance and expiry
+
+Every row of the PowerDNS `records` table carries a `provenance` and a
+`refreshed_at`, added by `nexus-powerdns-initialize-db`:
+
+| provenance | written by | expires |
+|---|---|---|
+| `server` | the Nexus server, for a host that reported | yes |
+| `init`   | the init SQL (static records from config) | never |
+| `manual` | anything else: the column default, so pdnsutil, psql, and PowerDNS's own SOA rewrites | never |
+
+Whenever a host reports, the server re-tags the rows it just wrote as
+`server` and sets `refreshed_at`. Clients re-send their state at least once a
+day even when nothing changed, so a live host's rows never get old. Once a
+`server` rrset has gone `nexus.server.record-lifespan` days (default 60;
+`--record-lifespan`, 0 disables) without a refresh, the server deletes it
+through the API, so hosts that were turned down drop out of DNS. An rrset that
+also holds a row of any other provenance is never deleted. The time the
+server itself was down before it started is added to the lifespan, so a long
+outage does not expire every host at once.
+
+Rows that already existed when the columns were added start as `manual`. The
+init run re-tags the ones config declares as `init`, and each live host
+re-tags its own as `server` on its next report, so after a day or two what is
+still `manual` is either hand-made or a host that no longer reports.
+
 ### Security
 
 - **Ed25519 request signatures** on `/api/v3`, for host records and ACME challenge records alike. Each host and each challenge client has its own keypair; the server holds only public keys, which are not secret and can be committed in plaintext via `nexus.server.host-public-keys` and `nexus.server.challenge-public-keys`. The HMAC-signed `/api/v2` has been removed.
