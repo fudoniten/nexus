@@ -100,7 +100,10 @@ in {
 
     systemd.services.nexus-server = {
       path = [ nexus-server ];
-      wantedBy = [ "network-online.target" ];
+      # Not network-online.target: a target orders itself after the units it
+      # wants, and nexus-powerdns runs after network-online.target, so that
+      # made an ordering cycle and systemd dropped this job at boot.
+      wantedBy = [ "multi-user.target" ];
       requires = [ "nexus-powerdns-api-key.service" ];
       wants = [ "nexus-powerdns.service" ];
       after = [ "nexus-powerdns-api-key.service" "nexus-powerdns.service" ];
